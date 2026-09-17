@@ -30,6 +30,9 @@ English | [中文](README.zh-CN.md)
 - File tree with expand/collapse-all and outline
 - Per-workspace file-list state persistence
 - Quick focus to the currently opened file
+- Temporary workspace for standalone files
+- Command palette (Ctrl/Cmd+P) to open files across workspaces
+- Copy file/directory path via right-click
 - Full-page reader
 - Free and Open Source
 
@@ -206,10 +209,12 @@ Rendered Markdown pages get an embedded left sidebar with **Files** and **Outlin
 - Keep several workspaces open at once: click one to switch, `×` to close it.
 - Picking the same folder again reuses the existing workspace (no duplicates).
 - The workspace list, including the last active one, is persisted across sessions.
+- The temporary workspace is pinned to the top; other workspaces are sorted by name.
 
 ## Files
 
 - Lists only Markdown files under the workspace; skips `node_modules`, `.git`, `vendor`, `dist` and similar.
+- Dot-prefixed files and directories are shown; skip-list entries are still ignored.
 - Directories expand/collapse; the button in the top-right corner expands or collapses all of them at once.
 - Clicking a file swaps the content in place, keeping the active theme.
 - Relative images, video and audio referenced from the file resolve against the workspace root.
@@ -226,6 +231,25 @@ Rendered Markdown pages get an embedded left sidebar with **Files** and **Outlin
 ## Outline
 
 - Shows the heading outline of the currently open Markdown file.
+
+## Temporary workspace
+
+- **打开文件** (Open File) picks one or more Markdown files without entering a directory.
+- Files that belong to an existing workspace focus that workspace; everything else lands in a pinned **临时工作空间** (temporary workspace).
+- Opening a `file://` URL that matches no workspace adds it to the temporary workspace as a URL entry.
+- Entries can be removed individually.
+
+## Navigation
+
+- Opening a file navigates to its `file://` URL (updating the address bar) once the workspace root path is known; otherwise the content swaps in place.
+
+## Command palette
+
+- Press `Ctrl/Cmd+P` to fuzzy-search file names across all workspaces and jump straight to a file.
+
+## Copy path
+
+- Right-click a file or directory to copy its path — absolute when known, relative otherwise.
 
 ---
 
