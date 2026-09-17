@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Markdown Viewer · 文件浏览</title>
+  <link rel="stylesheet" href="/content/index.css" type="text/css" media="all" />
+  <link rel="stylesheet" href="/content/themes.css" type="text/css" media="all" />
+  <link rel="stylesheet" href="/reader/index.css" type="text/css" media="all" />
+</head>
+<body>
+  <header class="toolbar">
+    <button id="toggle-sidebar" class="btn" type="button" title="显示 / 隐藏侧边栏">侧栏</button>
+    <button id="pick" class="btn btn-primary" type="button">选择文件夹</button>
+    <button id="grant" class="btn btn-primary hidden" type="button">重新授权</button>
+    <button id="raw-btn" class="btn" type="button" title="切换源码 / 预览">源码</button>
+    <span id="path" class="path"></span>
+    <span id="status" class="status"></span>
+  </header>
+
+  <div class="layout">
+    <nav id="sidebar" class="sidebar">
+      <div class="side-tabs">
+        <button id="tab-files" class="side-tab active" type="button">文件</button>
+        <button id="tab-outline" class="side-tab" type="button">大纲</button>
+      </div>
+      <div id="tree" class="tree"></div>
+      <div id="outline" class="outline hidden"></div>
+    </nav>
+    <main class="content">
+      <div id="empty" class="empty">
+        <p>点击左上角「选择文件夹」，浏览该目录下的 Markdown 文件。</p>
+        <p class="muted">需要 Chrome / Edge 86 及以上版本。</p>
+      </div>
+      <article id="view" class="markdown-body hidden"></article>
+      <pre id="raw" class="raw hidden"></pre>
+    </main>
+  </div>
+
+  <script src="/vendor/prism.min.js" charset="utf-8"></script>
+  <script src="/vendor/prism-autoloader.min.js" charset="utf-8"></script>
+  <script src="/reader/index.js" charset="utf-8"></script>
+</body>
+</html>

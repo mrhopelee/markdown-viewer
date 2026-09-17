@@ -105,6 +105,12 @@ md.messages = ({storage: {defaults, state, set}, compilers, mathjax, xhr, webreq
       sendResponse()
     }
 
+    // reader
+    else if (req.message === 'reader.open') {
+      chrome.tabs.create({url: chrome.runtime.getURL('/reader/index.html')})
+      sendResponse()
+    }
+
     // origins view
     else if (req.message === 'options.origins') {
       sendResponse({

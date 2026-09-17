@@ -39,7 +39,7 @@ sh themes/build.sh $browser
 mkdir -p tmp
 mkdir -p tmp/markdown-viewer
 cd ..
-cp -r background content icons options popup themes vendor LICENSE build/tmp/markdown-viewer/
+cp -r background content icons options popup reader themes vendor LICENSE build/tmp/markdown-viewer/
 
 # copy manifest.json
 if [ "$browser" = "chrome" ]; then
