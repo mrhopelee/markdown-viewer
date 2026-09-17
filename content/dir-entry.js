@@ -21,8 +21,9 @@
 
   var $ = function (sel) { return document.querySelector(sel) }
 
-  var workspaces = []          // [{ id, name, handle }] in open order
+  var workspaces = []          // [{ id, name, kind, handle | files }] in open order
   var activeId = null          // id of the active workspace
+  var TEMP_WS_ID = '__mdv_temp' // fixed id of the temporary workspace
   var fileMap = new Map()      // relative path -> FileSystemFileHandle
   var currentDir = ''          // directory of the swapped file
   var swapped = false          // showing swapped content vs original page content
@@ -90,6 +91,7 @@
   bar.id = '__mdv_sidebar'
   bar.innerHTML =
     '<div id="__mdv_head">' +
+      '<button id="__mdv_file_pick" type="button">打开文件</button>' +
       '<button id="__mdv_pick" type="button">打开工作空间</button>' +
       '<button id="__mdv_grant" type="button" style="display:none">重新授权</button>' +
     '</div>' +
@@ -178,9 +180,7 @@
   }
 
   // ---- file open (in-place swap) ----
-  function openPath (relPath) {
-    var handle = fileMap.get(relPath)
-    if (!handle) return
+  function openFileHandle (handle, relPath) {
     handle.getFile().then(function (file) {
       return file.text()
     }).then(function (text) {
@@ -208,6 +208,26 @@
         buildOutline()
       })
     }).catch(function () {})
+  }
+
+  function openPath (relPath) {
+    var ws = activeWs()
+    if (!ws) return
+    if (ws.kind === 'temp') {
+      var files = ws.files || []
+      for (var i = 0; i < files.length; i++) {
+        var f = files[i]
+        if (f.id === relPath) {
+          if (f.handle) openFileHandle(f.handle, relPath)
+          else if (f.url) location.href = f.url
+          return
+        }
+      }
+      return
+    }
+    var handle = fileMap.get(relPath)
+    if (!handle) return
+    openFileHandle(handle, relPath)
   }
 
   // ---- local media (relative images) ----
@@ -366,6 +386,26 @@
     return row
   }
 
+  function renderTempTree (ws) {
+    var el = $('#__mdv_tree')
+    el.textContent = ''
+    activeRow = null
+    var files = ws.files || []
+    files.forEach(function (f) {
+      var row = document.createElement('div')
+      row.className = '__mdv_row __mdv_file'
+      row.style.paddingLeft = '10px'
+      row.textContent = f.name
+      row.title = f.name
+      row.setAttribute('data-path', f.id)
+      row.addEventListener('click', function () { activateFile(f.id, row) })
+      el.appendChild(row)
+    })
+    if (!files.length) {
+      el.innerHTML = '<div class="__mdv_empty">\u5c1a\u65e0\u4e34\u65f6\u6587\u4ef6\uff0c\u70b9\u51fb\u300c\u6253\u5f00\u6587\u4ef6\u300d\u9009\u62e9 md \u6587\u4ef6</div>'
+    }
+  }
+
   function isDirOpen (path) {
     var ws = activeWs()
     return !!(ws && ws.open && ws.open.indexOf(path) >= 0)
@@ -406,10 +446,22 @@
     return null
   }
 
+  function resolveHandle (ws, relPath) {
+    if (!ws) return null
+    if (ws.kind === 'temp') {
+      var files = ws.files || []
+      for (var i = 0; i < files.length; i++) {
+        if (files[i].id === relPath) return files[i].handle || null
+      }
+      return null
+    }
+    return fileMap.get(relPath) || null
+  }
+
   function restoreActiveFile () {
     var ws = activeWs()
     var relPath = ws && ws.active
-    if (!relPath || !fileMap.has(relPath)) return
+    if (!relPath) return
     var row = findFileRow(relPath)
     if (row) {
       highlightRow(row)
@@ -418,7 +470,8 @@
         row.scrollIntoView({ block: 'center' })
       }
     }
-    openPath(relPath)
+    var handle = resolveHandle(ws, relPath)
+    if (handle) openFileHandle(handle, relPath)
   }
 
   function allDirPaths () {
@@ -436,6 +489,11 @@
     var btn = $('#__mdv_expand')
     if (!btn) return
     var ws = activeWs()
+    if (ws && ws.kind === 'temp') {
+      btn.style.display = 'none'
+      return
+    }
+    btn.style.display = ''
     var paths = allDirPaths()
     var allOpen = paths.length > 0 && paths.every(function (p) { return ((ws && ws.open) || []).indexOf(p) >= 0 })
     btn.textContent = allOpen ? '\u6298\u53e0' : '\u5c55\u5f00'
@@ -471,14 +529,21 @@
   }
 
   function listTree () {
-    var handle = activeHandle()
-    if (!handle) {
+    var ws = activeWs()
+    if (!ws) {
       fileMap = new Map()
       $('#__mdv_tree').innerHTML = '<div class="__mdv_empty">\u70b9\u51fb\u300c\u6253\u5f00\u5de5\u4f5c\u7a7a\u95f4\u300d\u6d4f\u89c8\u76ee\u5f55</div>'
       showGrant(false)
       updateExpandButton()
       return Promise.resolve()
     }
+    if (ws.kind === 'temp') {
+      renderTempTree(ws)
+      restoreActiveFile()
+      updateExpandButton()
+      return Promise.resolve()
+    }
+    var handle = ws.handle
     return ensurePermission(handle).then(function (ok) {
       if (!ok) {
         showGrant(true)
@@ -509,7 +574,7 @@
           getReq.onsuccess = function () {
             var handle = getReq.result
             if (handle) {
-              var ws = { id: 'ws' + Date.now().toString(36), name: handle.name || '', handle: handle, open: [], active: '' }
+              var ws = { id: 'ws' + Date.now().toString(36), name: handle.name || '', handle: handle, kind: 'dir', files: [], open: [], active: '' }
               tx.objectStore('workspaces').put([ws], 'list')
               tx.objectStore('workspaces').put(ws.id, 'active')
             }
@@ -558,6 +623,10 @@
       if (perm === 'prompt') return handle.requestPermission({ mode: 'read' }).then(function (p) { return p === 'granted' })
       return false
     }).catch(function () { return false })
+  }
+
+  function hasPermission (handle) {
+    return handle.queryPermission({ mode: 'read' }).then(function (p) { return p === 'granted' }).catch(function () { return false })
   }
 
   function pickDirectory () {
@@ -645,7 +714,7 @@
 
   function addWorkspace (handle) {
     var pending = workspaces.map(function (ws) {
-      if (typeof ws.handle.isSameEntry !== 'function') return Promise.resolve(null)
+      if (ws.kind === 'temp' || !ws.handle || typeof ws.handle.isSameEntry !== 'function') return Promise.resolve(null)
       return ws.handle.isSameEntry(handle).then(function (same) { return same ? ws : null })
         .catch(function () { return null })
     })
@@ -661,6 +730,8 @@
           id: 'ws' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
           name: handle.name || '',
           handle: handle,
+          kind: 'dir',
+          files: [],
           open: [],
           active: ''
         }
@@ -671,6 +742,173 @@
         renderWorkspaces()
         return listTree()
       })
+    })
+  }
+
+  function findTemp () {
+    for (var i = 0; i < workspaces.length; i++) {
+      if (workspaces[i].id === TEMP_WS_ID) return workspaces[i]
+    }
+    return null
+  }
+
+  function pickFile () {
+    if (typeof window.showOpenFilePicker !== 'function') return
+    window.showOpenFilePicker({
+      multiple: true,
+      types: [{
+        description: 'Markdown',
+        accept: { 'text/markdown': ['.md', '.markdown', '.mdown', '.mkdn', '.mkd', '.mdwn', '.mdtxt', '.mdtext', '.text'] }
+      }]
+    }).then(function (handles) {
+      return handlePickedFiles(handles)
+    }).catch(function () {})
+  }
+
+  function handlePickedFiles (handles) {
+    var chain = Promise.resolve()
+    handles.forEach(function (h) {
+      chain = chain.then(function () { return addOpenedFile(h) })
+    })
+    return chain
+  }
+
+  function findInFileMap (map, fileHandle) {
+    var entries = Array.from(map.entries())
+    var i = 0
+    function next () {
+      if (i >= entries.length) return Promise.resolve(null)
+      var e = entries[i++]
+      var h = e[1]
+      if (typeof h.isSameEntry !== 'function') return next()
+      return h.isSameEntry(fileHandle).then(function (same) { return same ? e[0] : next() }).catch(function () { return next() })
+    }
+    return next()
+  }
+
+  function findInDir (ws, fileHandle) {
+    return hasPermission(ws.handle).then(function (ok) {
+      if (!ok) return null
+      return collect(ws.handle, '', []).then(function (files) {
+        var i = 0
+        function next () {
+          if (i >= files.length) return Promise.resolve(null)
+          var f = files[i++]
+          if (typeof f.handle.isSameEntry !== 'function') return next()
+          return f.handle.isSameEntry(fileHandle).then(function (same) { return same ? f.path : next() }).catch(function () { return next() })
+        }
+        return next()
+      })
+    })
+  }
+
+  function findWorkspaceByFile (fileHandle) {
+    var active = activeWs()
+    var checkActive = (active && active.kind !== 'temp')
+      ? findInFileMap(fileMap, fileHandle).then(function (rel) { return rel ? { ws: active, rel: rel } : null })
+      : Promise.resolve(null)
+
+    return checkActive.then(function (found) {
+      if (found) return found
+      var dirs = workspaces.filter(function (w) { return w.kind !== 'temp' && w !== active })
+      var i = 0
+      function next () {
+        if (i >= dirs.length) return Promise.resolve(null)
+        var ws = dirs[i++]
+        return findInDir(ws, fileHandle).then(function (rel) {
+          return rel ? { ws: ws, rel: rel } : next()
+        })
+      }
+      return next()
+    })
+  }
+
+  function findInTemp (temp, fileHandle) {
+    var i = 0
+    function next () {
+      if (i >= temp.files.length) return Promise.resolve(null)
+      var f = temp.files[i++]
+      if (typeof f.handle.isSameEntry !== 'function') return next()
+      return f.handle.isSameEntry(fileHandle).then(function (same) { return same ? f : next() }).catch(function () { return next() })
+    }
+    return next()
+  }
+
+  function addToTemp (fileHandle) {
+    var temp = findTemp()
+    if (!temp) {
+      temp = { id: TEMP_WS_ID, name: '\u4e34\u65f6\u5de5\u4f5c\u7a7a\u95f4', kind: 'temp', files: [], open: [], active: '' }
+      workspaces.push(temp)
+    }
+    return findInTemp(temp, fileHandle).then(function (existing) {
+      if (existing) {
+        activeId = temp.id
+        temp.active = existing.id
+      } else {
+        var entry = {
+          id: 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          name: fileHandle.name || '\u672a\u547d\u540d',
+          handle: fileHandle
+        }
+        temp.files.push(entry)
+        activeId = temp.id
+        temp.active = entry.id
+      }
+      scrollToActive = true
+      return persistWorkspaces().then(function () {
+        renderWorkspaces()
+        return listTree()
+      })
+    })
+  }
+
+  function addOpenedFile (fileHandle) {
+    return findWorkspaceByFile(fileHandle).then(function (match) {
+      if (match) {
+        activeId = match.ws.id
+        match.ws.active = match.rel
+        if (!match.ws.open) match.ws.open = []
+        ancestorDirs(match.rel).forEach(function (d) {
+          if (match.ws.open.indexOf(d) < 0) match.ws.open.push(d)
+        })
+        scrollToActive = true
+        return persistWorkspaces().then(function () {
+          renderWorkspaces()
+          return listTree()
+        })
+      }
+      return addToTemp(fileHandle)
+    })
+  }
+
+  function addCurrentToTemp () {
+    var url = location.href
+    var name = currentFilePath().split('/').filter(Boolean).pop() || '\u672a\u547d\u540d'
+    var temp = findTemp()
+    if (!temp) {
+      temp = { id: TEMP_WS_ID, name: '\u4e34\u65f6\u5de5\u4f5c\u7a7a\u95f4', kind: 'temp', files: [], open: [], active: '' }
+      workspaces.push(temp)
+    }
+    var existing = null
+    for (var i = 0; i < temp.files.length; i++) {
+      if (temp.files[i].url === url) { existing = temp.files[i]; break }
+    }
+    if (existing) {
+      temp.active = existing.id
+    } else {
+      var entry = {
+        id: 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        name: name,
+        url: url
+      }
+      temp.files.push(entry)
+      temp.active = entry.id
+    }
+    activeId = temp.id
+    scrollToActive = true
+    return persistWorkspaces().then(function () {
+      renderWorkspaces()
+      return listTree().then(function () { return true })
     })
   }
 
@@ -713,6 +951,7 @@
       if (i >= workspaces.length) return Promise.resolve(null)
       var ws = workspaces[i++]
       if (!ws.name) return next()
+      if (ws.kind === 'temp' || !ws.handle) return next()
       var idx = -1
       for (var j = segments.length - 1; j >= 0; j--) {
         if (segments[j] === ws.name) { idx = j; break }
@@ -729,11 +968,10 @@
 
   function quickFocus () {
     if (location.protocol !== 'file:') return Promise.resolve(false)
-    if (!workspaces.length) return Promise.resolve(false)
     var path = currentFilePath()
     if (!path || !MARKDOWN_RE.test(path)) return Promise.resolve(false)
     return findCurrentWorkspace().then(function (match) {
-      if (!match) return false
+      if (!match) return addCurrentToTemp()
       var ws = match.ws
       activeId = ws.id
       ws.active = match.rel
@@ -773,7 +1011,7 @@
       return idbLoad()
     }).then(function (data) {
       workspaces = (data.list || []).map(function (w) {
-        return { id: w.id, name: w.name, handle: w.handle, open: w.open || [], active: w.active || '' }
+        return { id: w.id, name: w.name, handle: w.handle, kind: w.kind || 'dir', files: w.files || [], open: w.open || [], active: w.active || '' }
       })
       activeId = data.active || null
       if (activeId && !activeWs()) activeId = workspaces.length ? workspaces[0].id : null
@@ -796,6 +1034,7 @@
   }
 
   $('#__mdv_pick').addEventListener('click', pickDirectory)
+  $('#__mdv_file_pick').addEventListener('click', pickFile)
   $('#__mdv_grant').addEventListener('click', function () {
     var handle = activeHandle()
     if (handle) ensurePermission(handle).then(function (ok) { if (ok) listTree() })
