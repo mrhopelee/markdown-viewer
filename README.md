@@ -1,4 +1,6 @@
 
+English | [中文](README.zh-CN.md)
+
 # Markdown Viewer / Browser Extension
 
 **Install: [Chrome]** / **[Firefox]** / **[Edge]** / **[Opera]**  / **[Brave]** / **[Chromium]** / **[Vivaldi]**
@@ -24,6 +26,11 @@
 - Configurable Markdown file path detection
 - Settings synchronization
 - Raw and rendered markdown views
+- Sidebar directory browser (workspace-based)
+- File tree with expand/collapse-all and outline
+- Per-workspace file-list state persistence
+- Quick focus to the currently opened file
+- Full-page reader
 - Free and Open Source
 
 # Table of Contents
@@ -32,6 +39,8 @@
 - **[Themes](#themes)**
 - **[Compiler Options](#compiler-options)**
 - **[Content Options](#content-options)**
+- **[Sidebar Directory Browser](#sidebar-directory-browser)**
+- **[Full-page Reader](#full-page-reader)**
 - **[Manage Origins](#manage-origins)**
 - **[Syntax Examples](#syntax-examples)**
 
@@ -184,6 +193,45 @@ Alternatively code blocks can be wrapped in HTML tags:
 ## ToC
 
 Generates Table of Contents (ToC) based on the headers found in the markdown document.
+
+---
+
+# Sidebar Directory Browser
+
+Rendered Markdown pages get an embedded left sidebar with **Files** and **Outline** tabs.
+
+## Workspaces
+
+- Click **Open Workspace** to pick a folder — each folder becomes a workspace.
+- Keep several workspaces open at once: click one to switch, `×` to close it.
+- Picking the same folder again reuses the existing workspace (no duplicates).
+- The workspace list, including the last active one, is persisted across sessions.
+
+## Files
+
+- Lists only Markdown files under the workspace; skips `node_modules`, `.git`, `vendor`, `dist` and similar.
+- Directories expand/collapse; the button in the top-right corner expands or collapses all of them at once.
+- Clicking a file swaps the content in place, keeping the active theme.
+- Relative images, video and audio referenced from the file resolve against the workspace root.
+
+## State persistence
+
+- Every workspace remembers its expanded directories and the last opened file.
+- Switching workspaces — or reloading the page — restores the tree and re-opens that file.
+
+## Quick focus
+
+- Open a Markdown file directly in a new window and the sidebar auto-switches to the workspace that contains it, expands the path and scrolls to the file.
+
+## Outline
+
+- Shows the heading outline of the currently open Markdown file.
+
+---
+
+# Full-page Reader
+
+The extension also ships a standalone full-page reader (`/reader/index.html`) with the same file tree and outline, for browsing a folder full-screen without a surrounding page.
 
 ---
 
