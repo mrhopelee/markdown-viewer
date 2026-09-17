@@ -31,6 +31,12 @@
   var sidebarOn = true
   var activeRow = null
   var scrollToActive = false  // scroll the active file row into view after next render
+  var contextMenu = null      // right-click context menu element
+  var paletteEl = null        // Ctrl+P file palette
+  var paletteResults = []     // gathered file list for the palette
+  var paletteActiveIdx = 0    // highlighted palette row
+  var paletteLoading = false  // palette is still gathering files
+  var wsFilesCache = {}       // workspaceId -> collected files (for the palette)
   var settings = {}
 
   // ---- styles ----
@@ -69,7 +75,9 @@
     '.__mdv_row:hover{background:rgba(128,128,128,.12)}',
     '.__mdv_row.__mdv-active{background:rgba(9,105,218,.15)}',
     '.__mdv_row .__mdv_arrow{width:11px;opacity:.6;flex:none}',
-    '.__mdv_row .__mdv_label{overflow:hidden;text-overflow:ellipsis}',
+    '.__mdv_row .__mdv_label{flex:1;overflow:hidden;text-overflow:ellipsis}',
+    '.__mdv_row .__mdv_file_close{flex:none;width:20px;height:20px;line-height:1;padding:0;border:none;background:transparent;color:inherit;font-size:16px;cursor:pointer;border-radius:4px;opacity:.5}',
+    '.__mdv_row .__mdv_file_close:hover{background:rgba(128,128,128,.25);opacity:1}',
     '.__mdv_children{display:none}',
     '.__mdv_dir.__mdv-open>.__mdv_children{display:block}',
     '.__mdv_empty{padding:14px;opacity:.6;font-size:12.5px}',
@@ -79,6 +87,21 @@
     '#__mdv_content{display:none}',
     'body.__mdv-swapped #_html,body.__mdv-swapped>pre{display:none!important}',
     'body.__mdv-swapped #__mdv_content{display:block}',
+    '#__mdv_menu{position:fixed;z-index:2147483002;min-width:200px;max-width:340px;background:#f6f8fa;color:#24292f;border:1px solid rgba(128,128,128,.4);border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.2);padding:4px 0}',
+    'body._color-dark #__mdv_menu{background:#161b22;color:#c9d1d9}',
+    '#__mdv_menu .__mdv_menu_path{padding:4px 12px;font-size:11.5px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '#__mdv_menu .__mdv_menu_item{padding:6px 12px;font-size:12.5px;cursor:pointer}',
+    '#__mdv_menu .__mdv_menu_item:hover{background:rgba(9,105,218,.15)}',
+    '#__mdv_palette{position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483002;display:none;align-items:flex-start;justify-content:center;background:rgba(0,0,0,.25);padding-top:80px}',
+    '#__mdv_palette_box{width:560px;max-width:90vw;background:#f6f8fa;color:#24292f;border:1px solid rgba(128,128,128,.4);border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.3);overflow:hidden}',
+    'body._color-dark #__mdv_palette_box{background:#161b22;color:#c9d1d9}',
+    '#__mdv_palette_input{width:100%;padding:12px 14px;font-size:14px;border:none;border-bottom:1px solid rgba(128,128,128,.3);background:transparent;color:inherit;outline:none;box-sizing:border-box}',
+    '#__mdv_palette_results{max-height:320px;overflow:auto;padding:4px 0}',
+    '.__mdv_palette_row{display:flex;align-items:center;gap:8px;padding:7px 14px;cursor:pointer}',
+    '.__mdv_palette_row.__mdv_palette_active{background:rgba(9,105,218,.15)}',
+    '.__mdv_palette_name{flex:none;font-size:13px}',
+    '.__mdv_palette_path{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;opacity:.65}',
+    '.__mdv_palette_empty{padding:12px 14px;font-size:12.5px;opacity:.6}',
     '#__mdv_content{word-wrap:break-word;max-width:100%}'
   ].join('\n')
 
@@ -210,24 +233,35 @@
     }).catch(function () {})
   }
 
+  function fileUrl (ws, relPath) {
+    if (!ws) return null
+    if (ws.kind === 'dir') {
+      if (!ws.rootPath) return null
+      return 'file://' + ws.rootPath + relPath
+    }
+    var files = ws.files || []
+    for (var i = 0; i < files.length; i++) {
+      if (files[i].id === relPath) return files[i].url || null
+    }
+    return null
+  }
+
+  function sameFileUrl (url) {
+    var cur = location.href
+    if (cur === url) return true
+    try { return decodeURIComponent(cur) === decodeURIComponent(url) } catch (e) { return false }
+  }
+
   function openPath (relPath) {
     var ws = activeWs()
     if (!ws) return
-    if (ws.kind === 'temp') {
-      var files = ws.files || []
-      for (var i = 0; i < files.length; i++) {
-        var f = files[i]
-        if (f.id === relPath) {
-          if (f.handle) openFileHandle(f.handle, relPath)
-          else if (f.url) location.href = f.url
-          return
-        }
-      }
+    var url = fileUrl(ws, relPath)
+    if (url) {
+      if (!sameFileUrl(url)) location.href = url
       return
     }
-    var handle = fileMap.get(relPath)
-    if (!handle) return
-    openFileHandle(handle, relPath)
+    var handle = resolveHandle(ws, relPath)
+    if (handle) openFileHandle(handle, relPath)
   }
 
   // ---- local media (relative images) ----
@@ -351,6 +385,7 @@
     var row = document.createElement('div')
     row.className = '__mdv_row'
     row.style.paddingLeft = (depth * 13 + 10) + 'px'
+    row.setAttribute('data-copy-path', dir.path)
     var arrow = document.createElement('span')
     arrow.className = '__mdv_arrow'
     arrow.textContent = open ? '\u25BE' : '\u25B8'
@@ -382,6 +417,7 @@
     row.textContent = f.name
     row.title = f.path
     row.setAttribute('data-path', f.path)
+    row.setAttribute('data-copy-path', f.path)
     row.addEventListener('click', function () { activateFile(f.path, row) })
     return row
   }
@@ -395,15 +431,109 @@
       var row = document.createElement('div')
       row.className = '__mdv_row __mdv_file'
       row.style.paddingLeft = '10px'
-      row.textContent = f.name
-      row.title = f.name
       row.setAttribute('data-path', f.id)
+      row.setAttribute('data-copy-path', f.url ? urlToPath(f.url) : f.name)
+
+      var label = document.createElement('span')
+      label.className = '__mdv_label'
+      label.textContent = f.name
+      label.title = f.name
+
+      var close = document.createElement('button')
+      close.type = 'button'
+      close.className = '__mdv_file_close'
+      close.textContent = '\u00D7'
+      close.title = '\u79fb\u9664'
+      close.addEventListener('click', function (e) {
+        e.stopPropagation()
+        removeTempFile(f.id)
+      })
+
+      row.appendChild(label)
+      row.appendChild(close)
       row.addEventListener('click', function () { activateFile(f.id, row) })
       el.appendChild(row)
     })
     if (!files.length) {
       el.innerHTML = '<div class="__mdv_empty">\u5c1a\u65e0\u4e34\u65f6\u6587\u4ef6\uff0c\u70b9\u51fb\u300c\u6253\u5f00\u6587\u4ef6\u300d\u9009\u62e9 md \u6587\u4ef6</div>'
     }
+  }
+
+  function removeTempFile (id) {
+    var ws = activeWs()
+    if (!ws || ws.kind !== 'temp') return
+    var idx = -1
+    for (var i = 0; i < (ws.files || []).length; i++) {
+      if (ws.files[i].id === id) { idx = i; break }
+    }
+    if (idx < 0) return
+    var wasActive = ws.active === id
+    ws.files.splice(idx, 1)
+    if (wasActive) {
+      ws.active = ws.files.length ? ws.files[Math.min(idx, ws.files.length - 1)].id : ''
+    }
+    persistWorkspaces().then(function () { listTree() })
+  }
+
+  function absPath (relPath) {
+    var ws = activeWs()
+    if (ws && ws.kind === 'dir' && ws.rootPath) return ws.rootPath + relPath
+    return relPath
+  }
+
+  function urlToPath (url) {
+    try { return decodeURIComponent(new URL(url).pathname) } catch (e) { return url }
+  }
+
+  function fallbackCopy (text) {
+    return new Promise(function (resolve) {
+      var ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      try { document.execCommand('copy') } catch (e) {}
+      document.body.removeChild(ta)
+      resolve()
+    })
+  }
+
+  function copyText (text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).catch(function () { return fallbackCopy(text) })
+    }
+    return fallbackCopy(text)
+  }
+
+  function hideContextMenu () {
+    if (contextMenu) { contextMenu.remove(); contextMenu = null }
+  }
+
+  function showContextMenu (x, y, path) {
+    hideContextMenu()
+    contextMenu = document.createElement('div')
+    contextMenu.id = '__mdv_menu'
+
+    var label = document.createElement('div')
+    label.className = '__mdv_menu_path'
+    label.textContent = path
+    label.title = path
+
+    var item = document.createElement('div')
+    item.className = '__mdv_menu_item'
+    item.textContent = '\u590d\u5236\u8def\u5f84'
+    item.addEventListener('click', function (e) {
+      e.stopPropagation()
+      copyText(path)
+      hideContextMenu()
+    })
+
+    contextMenu.appendChild(label)
+    contextMenu.appendChild(item)
+    document.body.appendChild(contextMenu)
+    contextMenu.style.left = Math.min(x, window.innerWidth - 220) + 'px'
+    contextMenu.style.top = Math.min(y, window.innerHeight - 90) + 'px'
   }
 
   function isDirOpen (path) {
@@ -470,8 +600,7 @@
         row.scrollIntoView({ block: 'center' })
       }
     }
-    var handle = resolveHandle(ws, relPath)
-    if (handle) openFileHandle(handle, relPath)
+    openPath(relPath)
   }
 
   function allDirPaths () {
@@ -516,7 +645,6 @@
         if (res.done) return out
         var name = res.value[0]
         var entry = res.value[1]
-        if (name.charAt(0) === '.') return next()
         if (entry.kind === 'file') {
           if (MARKDOWN_RE.test(name)) out.push({ path: prefix + name, name: name, handle: entry })
           return next()
@@ -551,6 +679,7 @@
       }
       showGrant(false)
       return collect(handle, '', []).then(function (files) {
+        wsFilesCache[ws.id] = files
         fileMap = new Map(files.map(function (f) { return [f.path, f.handle] }))
         renderTree(buildTree(files), files.length)
         restoreActiveFile()
@@ -574,7 +703,7 @@
           getReq.onsuccess = function () {
             var handle = getReq.result
             if (handle) {
-              var ws = { id: 'ws' + Date.now().toString(36), name: handle.name || '', handle: handle, kind: 'dir', files: [], open: [], active: '' }
+              var ws = { id: 'ws' + Date.now().toString(36), name: handle.name || '', handle: handle, kind: 'dir', files: [], open: [], active: '', rootPath: null }
               tx.objectStore('workspaces').put([ws], 'list')
               tx.objectStore('workspaces').put(ws.id, 'active')
             }
@@ -657,7 +786,12 @@
   function renderWorkspaces () {
     var el = $('#__mdv_ws_list')
     el.textContent = ''
-    workspaces.forEach(function (ws) {
+    var sorted = workspaces.slice().sort(function (a, b) {
+      if (a.id === TEMP_WS_ID) return -1
+      if (b.id === TEMP_WS_ID) return 1
+      return naturalCompare(a.name, b.name)
+    })
+    sorted.forEach(function (ws) {
       var row = document.createElement('div')
       row.className = '__mdv_ws_row' + (ws.id === activeId ? ' __mdv-ws-active' : '')
 
@@ -703,6 +837,7 @@
     if (idx < 0) return
     var wasActive = id === activeId
     workspaces.splice(idx, 1)
+    delete wsFilesCache[id]
     if (wasActive) {
       activeId = workspaces.length ? workspaces[Math.min(idx, workspaces.length - 1)].id : null
     }
@@ -733,7 +868,8 @@
           kind: 'dir',
           files: [],
           open: [],
-          active: ''
+          active: '',
+          rootPath: null
         }
         workspaces.push(ws)
         activeId = ws.id
@@ -975,6 +1111,9 @@
       var ws = match.ws
       activeId = ws.id
       ws.active = match.rel
+      if (!ws.rootPath) {
+        ws.rootPath = path.slice(0, -(match.rel.length + 1)) + '/'
+      }
       if (!ws.open) ws.open = []
       ancestorDirs(match.rel).forEach(function (d) {
         if (ws.open.indexOf(d) < 0) ws.open.push(d)
@@ -985,6 +1124,189 @@
         return listTree().then(function () { return true })
       })
     })
+  }
+
+  // ---- palette (Ctrl+P global file open) ----
+  function scoreFile (f, q) {
+    var name = f.name.toLowerCase()
+    var idx = name.indexOf(q)
+    if (idx === 0) return 0
+    if (idx > 0) return 1
+    var path = f.path.toLowerCase()
+    if (path.indexOf(q) >= 0) return 2
+    var i = 0
+    for (var j = 0; j < name.length && i < q.length; j++) {
+      if (name[j] === q[i]) i++
+    }
+    return i === q.length ? 3 : -1
+  }
+
+  function filterPalette (query) {
+    var q = query.trim().toLowerCase()
+    var out
+    if (!q) {
+      out = paletteResults.slice()
+    } else {
+      out = []
+      paletteResults.forEach(function (f) {
+        var s = scoreFile(f, q)
+        if (s >= 0) out.push({ f: f, s: s })
+      })
+      out.sort(function (a, b) { return a.s - b.s || naturalCompare(a.f.name, b.f.name) })
+      out = out.map(function (x) { return x.f })
+    }
+    return out.slice(0, 50)
+  }
+
+  function renderPalette () {
+    var box = $('#__mdv_palette_results')
+    box.textContent = ''
+    paletteActiveIdx = 0
+    var q = $('#__mdv_palette_input').value
+    var results = filterPalette(q)
+    if (!results.length) {
+      var empty = document.createElement('div')
+      empty.className = '__mdv_palette_empty'
+      empty.textContent = paletteLoading ? '\u52a0\u8f7d\u4e2d\u2026' : (workspaces.length ? '\u65e0\u5339\u914d\u6587\u4ef6' : '\u5c1a\u65e0\u5de5\u4f5c\u7a7a\u95f4')
+      box.appendChild(empty)
+      return
+    }
+    results.forEach(function (f, i) {
+      var row = document.createElement('div')
+      row.className = '__mdv_palette_row' + (i === paletteActiveIdx ? ' __mdv_palette_active' : '')
+      var name = document.createElement('span')
+      name.className = '__mdv_palette_name'
+      name.textContent = f.name
+      var path = document.createElement('span')
+      path.className = '__mdv_palette_path'
+      path.textContent = f.ws.name + ' \u00b7 ' + f.path
+      row.appendChild(name)
+      row.appendChild(path)
+      row.addEventListener('mousemove', function () { setPaletteActive(i) })
+      row.addEventListener('click', function () { selectPaletteFile(f) })
+      box.appendChild(row)
+    })
+  }
+
+  function setPaletteActive (idx) {
+    var rows = document.querySelectorAll('.__mdv_palette_row')
+    if (idx < 0) idx = 0
+    if (idx >= rows.length) idx = Math.max(0, rows.length - 1)
+    paletteActiveIdx = idx
+    Array.from(rows).forEach(function (r, i) {
+      r.classList.toggle('__mdv_palette_active', i === idx)
+    })
+    if (rows[idx]) rows[idx].scrollIntoView({ block: 'nearest' })
+  }
+
+  function paletteSelection () {
+    var results = filterPalette($('#__mdv_palette_input').value)
+    if (!results.length) return null
+    var idx = Math.max(0, Math.min(paletteActiveIdx, results.length - 1))
+    return results[idx]
+  }
+
+  function selectPaletteFile (f) {
+    closePalette()
+    var ws = f.ws
+    activeId = ws.id
+    ws.active = ws.kind === 'temp' ? f.id : f.path
+    if (ws.kind === 'dir') {
+      if (!ws.open) ws.open = []
+      ancestorDirs(f.path).forEach(function (d) {
+        if (ws.open.indexOf(d) < 0) ws.open.push(d)
+      })
+    }
+    scrollToActive = true
+    persistWorkspaces().then(function () {
+      renderWorkspaces()
+      listTree()
+    })
+  }
+
+  function gatherFiles () {
+    var list = []
+    var tasks = workspaces.map(function (ws) {
+      if (ws.kind === 'temp') {
+        (ws.files || []).forEach(function (f) {
+          list.push({ id: f.id, path: f.url ? urlToPath(f.url) : f.name, name: f.name, ws: ws })
+        })
+        return Promise.resolve()
+      }
+      if (wsFilesCache[ws.id]) {
+        wsFilesCache[ws.id].forEach(function (f) {
+          list.push({ path: f.path, name: f.name, ws: ws })
+        })
+        return Promise.resolve()
+      }
+      return hasPermission(ws.handle).then(function (ok) {
+        if (!ok) return
+        return collect(ws.handle, '', []).then(function (files) {
+          wsFilesCache[ws.id] = files
+          files.forEach(function (f) {
+            list.push({ path: f.path, name: f.name, ws: ws })
+          })
+        })
+      })
+    })
+    return Promise.all(tasks).then(function () {
+      return list.sort(function (a, b) { return naturalCompare(a.name, b.name) })
+    })
+  }
+
+  function ensurePalette () {
+    if (paletteEl) return
+    paletteEl = document.createElement('div')
+    paletteEl.id = '__mdv_palette'
+    paletteEl.innerHTML =
+      '<div id="__mdv_palette_box">' +
+        '<input id="__mdv_palette_input" type="text" placeholder="\u641c\u7d22\u6587\u4ef6\u540d\uff08\u8de8\u5de5\u4f5c\u7a7a\u95f4\uff09\u2026">' +
+        '<div id="__mdv_palette_results"></div>' +
+      '</div>'
+    document.body.appendChild(paletteEl)
+
+    paletteEl.addEventListener('click', function (e) {
+      if (e.target === paletteEl) closePalette()
+    })
+
+    $('#__mdv_palette_input').addEventListener('input', function () {
+      renderPalette()
+    })
+
+    $('#__mdv_palette_input').addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setPaletteActive(paletteActiveIdx + 1)
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setPaletteActive(paletteActiveIdx - 1)
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        var f = paletteSelection()
+        if (f) selectPaletteFile(f)
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        closePalette()
+      }
+    })
+  }
+
+  function openPalette () {
+    ensurePalette()
+    paletteEl.style.display = 'flex'
+    $('#__mdv_palette_input').value = ''
+    $('#__mdv_palette_input').focus()
+    paletteLoading = true
+    renderPalette()
+    gatherFiles().then(function (files) {
+      paletteResults = files
+      paletteLoading = false
+      renderPalette()
+    })
+  }
+
+  function closePalette () {
+    if (paletteEl) paletteEl.style.display = 'none'
   }
 
   // ---- sidebar UI ----
@@ -1011,7 +1333,7 @@
       return idbLoad()
     }).then(function (data) {
       workspaces = (data.list || []).map(function (w) {
-        return { id: w.id, name: w.name, handle: w.handle, kind: w.kind || 'dir', files: w.files || [], open: w.open || [], active: w.active || '' }
+        return { id: w.id, name: w.name, handle: w.handle, kind: w.kind || 'dir', files: w.files || [], open: w.open || [], active: w.active || '', rootPath: w.rootPath || null }
       })
       activeId = data.active || null
       if (activeId && !activeWs()) activeId = workspaces.length ? workspaces[0].id : null
@@ -1043,6 +1365,23 @@
   $('#__mdv_tab_files').addEventListener('click', function () { setSideMode('files') })
   $('#__mdv_tab_outline').addEventListener('click', function () { setSideMode('outline') })
   $('#__mdv_expand').addEventListener('click', toggleExpandAll)
+  $('#__mdv_tree').addEventListener('contextmenu', function (e) {
+    var row = e.target.closest('.__mdv_row')
+    if (!row) return
+    var path = row.getAttribute('data-copy-path')
+    if (!path) return
+    e.preventDefault()
+    showContextMenu(e.clientX, e.clientY, absPath(path))
+  })
+  document.addEventListener('click', hideContextMenu)
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideContextMenu() })
+  document.addEventListener('scroll', hideContextMenu, true)
+  document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
+      e.preventDefault()
+      openPalette()
+    }
+  })
   $('#__mdv_outline').addEventListener('click', function (e) {
     var a = e.target.closest('a')
     if (!a) return

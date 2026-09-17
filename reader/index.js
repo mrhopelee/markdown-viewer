@@ -263,7 +263,6 @@ async function ensurePermission (handle) {
 
 async function collect (dirHandle, prefix, out) {
   for await (const [name, entry] of dirHandle.entries()) {
-    if (name.startsWith('.')) continue
     if (entry.kind === 'file') {
       if (MARKDOWN_RE.test(name)) out.push({ path: prefix + name, name, handle: entry })
     } else if (entry.kind === 'directory') {
