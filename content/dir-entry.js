@@ -292,7 +292,9 @@
       var node = root
       for (var i = 0; i < parts.length - 1; i++) {
         var d = parts[i]
-        if (!node.dirs.has(d)) node.dirs.set(d, { name: d, dirs: new Map(), files: [] })
+        if (!node.dirs.has(d)) {
+          node.dirs.set(d, { name: d, path: parts.slice(0, i + 1).join('/') + '/', dirs: new Map(), files: [] })
+        }
         node = node.dirs.get(d)
       }
       node.files.push(f)
@@ -303,6 +305,7 @@
   function renderTree (root, total) {
     var el = $('#__mdv_tree')
     el.textContent = ''
+    activeRow = null
     var dirs = Array.from(root.dirs.values()).sort(function (a, b) { return naturalCompare(a.name, b.name) })
     dirs.forEach(function (d) { el.appendChild(renderDir(d, 0)) })
     root.files.sort(function (a, b) { return naturalCompare(a.name, b.name) })
@@ -313,12 +316,14 @@
   function renderDir (dir, depth) {
     var wrap = document.createElement('div')
     wrap.className = '__mdv_dir'
+    var open = isDirOpen(dir.path)
+    if (open) wrap.classList.add('__mdv-open')
     var row = document.createElement('div')
     row.className = '__mdv_row'
     row.style.paddingLeft = (depth * 13 + 10) + 'px'
     var arrow = document.createElement('span')
     arrow.className = '__mdv_arrow'
-    arrow.textContent = '\u25B8'
+    arrow.textContent = open ? '\u25BE' : '\u25B8'
     var label = document.createElement('span')
     label.className = '__mdv_label'
     label.textContent = dir.name + '/'
@@ -331,8 +336,9 @@
     dir.files.sort(function (a, b) { return naturalCompare(a.name, b.name) })
       .forEach(function (f) { children.appendChild(renderFile(f, depth + 1)) })
     row.addEventListener('click', function () {
-      var open = wrap.classList.toggle('__mdv-open')
-      arrow.textContent = open ? '\u25BE' : '\u25B8'
+      var nowOpen = wrap.classList.toggle('__mdv-open')
+      arrow.textContent = nowOpen ? '\u25BE' : '\u25B8'
+      toggleDirOpen(dir.path, nowOpen)
     })
     wrap.appendChild(row)
     wrap.appendChild(children)
@@ -345,13 +351,58 @@
     row.style.paddingLeft = (depth * 13 + 10) + 'px'
     row.textContent = f.name
     row.title = f.path
-    row.addEventListener('click', function () {
-      if (activeRow) activeRow.classList.remove('__mdv-active')
-      activeRow = row
-      row.classList.add('__mdv-active')
-      openPath(f.path)
-    })
+    row.setAttribute('data-path', f.path)
+    row.addEventListener('click', function () { activateFile(f.path, row) })
     return row
+  }
+
+  function isDirOpen (path) {
+    var ws = activeWs()
+    return !!(ws && ws.open && ws.open.indexOf(path) >= 0)
+  }
+
+  function toggleDirOpen (path, open) {
+    var ws = activeWs()
+    if (!ws) return
+    if (!ws.open) ws.open = []
+    var i = ws.open.indexOf(path)
+    if (open && i < 0) ws.open.push(path)
+    else if (!open && i >= 0) ws.open.splice(i, 1)
+    else return
+    persistWorkspaces()
+  }
+
+  function highlightRow (row) {
+    if (activeRow) activeRow.classList.remove('__mdv-active')
+    activeRow = row
+    row.classList.add('__mdv-active')
+  }
+
+  function activateFile (relPath, row) {
+    var ws = activeWs()
+    if (ws && ws.active !== relPath) {
+      ws.active = relPath
+      persistWorkspaces()
+    }
+    highlightRow(row)
+    openPath(relPath)
+  }
+
+  function findFileRow (relPath) {
+    var rows = document.querySelectorAll('.__mdv_file')
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].getAttribute('data-path') === relPath) return rows[i]
+    }
+    return null
+  }
+
+  function restoreActiveFile () {
+    var ws = activeWs()
+    var relPath = ws && ws.active
+    if (!relPath || !fileMap.has(relPath)) return
+    var row = findFileRow(relPath)
+    if (row) highlightRow(row)
+    openPath(relPath)
   }
 
   function collect (dirHandle, prefix, out) {
@@ -390,6 +441,7 @@
       return collect(handle, '', []).then(function (files) {
         fileMap = new Map(files.map(function (f) { return [f.path, f.handle] }))
         renderTree(buildTree(files), files.length)
+        restoreActiveFile()
       })
     })
   }
@@ -409,7 +461,7 @@
           getReq.onsuccess = function () {
             var handle = getReq.result
             if (handle) {
-              var ws = { id: 'ws' + Date.now().toString(36), name: handle.name || '', handle: handle }
+              var ws = { id: 'ws' + Date.now().toString(36), name: handle.name || '', handle: handle, open: [], active: '' }
               tx.objectStore('workspaces').put([ws], 'list')
               tx.objectStore('workspaces').put(ws.id, 'active')
             }
@@ -560,7 +612,9 @@
         var ws = {
           id: 'ws' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
           name: handle.name || '',
-          handle: handle
+          handle: handle,
+          open: [],
+          active: ''
         }
         workspaces.push(ws)
         activeId = ws.id
@@ -595,7 +649,9 @@
     getSettings().then(function () {
       return idbLoad()
     }).then(function (data) {
-      workspaces = data.list || []
+      workspaces = (data.list || []).map(function (w) {
+        return { id: w.id, name: w.name, handle: w.handle, open: w.open || [], active: w.active || '' }
+      })
       activeId = data.active || null
       if (activeId && !activeWs()) activeId = workspaces.length ? workspaces[0].id : null
       renderWorkspaces()
