@@ -29,6 +29,7 @@
   var sideMode = 'files'
   var sidebarOn = true
   var activeRow = null
+  var scrollToActive = false  // scroll the active file row into view after next render
   var settings = {}
 
   // ---- styles ----
@@ -41,8 +42,8 @@
     'body.__mdv-sidebar-on{padding-left:300px!important}',
     'body._color-light #__mdv_sidebar{border-right:1px solid #d0d7de}',
     'body._color-dark #__mdv_sidebar{border-right:1px solid #30363d}',
-    '#__mdv_head,#__mdv_ws_list,#__mdv_tabs,#__mdv_tree{background:#f6f8fa;color:#24292f}',
-    'body._color-dark #__mdv_head,body._color-dark #__mdv_ws_list,body._color-dark #__mdv_tabs,body._color-dark #__mdv_tree{background:#161b22;color:#c9d1d9}',
+    '#__mdv_head,#__mdv_ws_list,#__mdv_tabs,#__mdv_tree_wrap{background:#f6f8fa;color:#24292f}',
+    'body._color-dark #__mdv_head,body._color-dark #__mdv_ws_list,body._color-dark #__mdv_tabs,body._color-dark #__mdv_tree_wrap{background:#161b22;color:#c9d1d9}',
     '#__mdv_head{display:flex;gap:6px;padding:8px;border-bottom:1px solid rgba(128,128,128,.3)}',
     '#__mdv_head button{flex:1;padding:5px 8px;font-size:12px;border-radius:6px;cursor:pointer;border:1px solid rgba(128,128,128,.4);background:transparent;color:inherit}',
     '#__mdv_head button:hover{background:rgba(128,128,128,.15)}',
@@ -57,6 +58,10 @@
     '#__mdv_tabs button{flex:1;padding:7px 0;font-size:12px;border:none;background:transparent;color:inherit;cursor:pointer;border-bottom:2px solid transparent;opacity:.7}',
     '#__mdv_tabs button.active{opacity:1;border-bottom-color:#0969da}',
     'body._color-dark #__mdv_tabs button.active{border-bottom-color:#58a6ff}',
+    '#__mdv_tree_wrap{flex:1;display:flex;flex-direction:column;min-height:0}',
+    '#__mdv_tree_bar{display:flex;justify-content:flex-end;padding:3px 6px}',
+    '#__mdv_expand{padding:2px 10px;font-size:11px;border-radius:6px;cursor:pointer;border:1px solid rgba(128,128,128,.4);background:transparent;color:inherit;opacity:.75}',
+    '#__mdv_expand:hover{background:rgba(128,128,128,.15);opacity:1}',
     '#__mdv_tree{flex:1;overflow:auto;padding:6px 0}',
     '#__mdv_outline{flex:1;overflow:auto;padding:0}',
     '.__mdv_row{display:flex;align-items:center;gap:4px;padding:3px 10px;cursor:pointer;white-space:nowrap;font-size:12.5px;user-select:none}',
@@ -93,7 +98,12 @@
       '<button id="__mdv_tab_files" class="active" type="button">文件</button>' +
       '<button id="__mdv_tab_outline" type="button">大纲</button>' +
     '</div>' +
-    '<div id="__mdv_tree"></div>' +
+    '<div id="__mdv_tree_wrap">' +
+      '<div id="__mdv_tree_bar">' +
+        '<button id="__mdv_expand" type="button">展开</button>' +
+      '</div>' +
+      '<div id="__mdv_tree"></div>' +
+    '</div>' +
     '<div id="__mdv_outline" style="display:none"></div>'
   document.body.appendChild(bar)
 
@@ -401,8 +411,44 @@
     var relPath = ws && ws.active
     if (!relPath || !fileMap.has(relPath)) return
     var row = findFileRow(relPath)
-    if (row) highlightRow(row)
+    if (row) {
+      highlightRow(row)
+      if (scrollToActive) {
+        scrollToActive = false
+        row.scrollIntoView({ block: 'center' })
+      }
+    }
     openPath(relPath)
+  }
+
+  function allDirPaths () {
+    var paths = new Set()
+    fileMap.forEach(function (_, filePath) {
+      var parts = filePath.split('/')
+      for (var i = 0; i < parts.length - 1; i++) {
+        paths.add(parts.slice(0, i + 1).join('/') + '/')
+      }
+    })
+    return Array.from(paths)
+  }
+
+  function updateExpandButton () {
+    var btn = $('#__mdv_expand')
+    if (!btn) return
+    var ws = activeWs()
+    var paths = allDirPaths()
+    var allOpen = paths.length > 0 && paths.every(function (p) { return ((ws && ws.open) || []).indexOf(p) >= 0 })
+    btn.textContent = allOpen ? '\u6298\u53e0' : '\u5c55\u5f00'
+    btn.title = allOpen ? '\u6298\u53e0\u5168\u90e8\u76ee\u5f55' : '\u5c55\u5f00\u5168\u90e8\u76ee\u5f55'
+  }
+
+  function toggleExpandAll () {
+    var ws = activeWs()
+    if (!ws) return
+    var paths = allDirPaths()
+    var allOpen = paths.length > 0 && paths.every(function (p) { return (ws.open || []).indexOf(p) >= 0 })
+    ws.open = allOpen ? [] : paths
+    persistWorkspaces().then(function () { listTree() })
   }
 
   function collect (dirHandle, prefix, out) {
@@ -430,9 +476,10 @@
       fileMap = new Map()
       $('#__mdv_tree').innerHTML = '<div class="__mdv_empty">\u70b9\u51fb\u300c\u6253\u5f00\u5de5\u4f5c\u7a7a\u95f4\u300d\u6d4f\u89c8\u76ee\u5f55</div>'
       showGrant(false)
-      return
+      updateExpandButton()
+      return Promise.resolve()
     }
-    ensurePermission(handle).then(function (ok) {
+    return ensurePermission(handle).then(function (ok) {
       if (!ok) {
         showGrant(true)
         return
@@ -442,6 +489,7 @@
         fileMap = new Map(files.map(function (f) { return [f.path, f.handle] }))
         renderTree(buildTree(files), files.length)
         restoreActiveFile()
+        updateExpandButton()
       })
     })
   }
@@ -626,12 +674,87 @@
     })
   }
 
+  function currentFilePath () {
+    var p = location.pathname
+    try { p = decodeURIComponent(p) } catch (e) {}
+    return p
+  }
+
+  function ancestorDirs (relPath) {
+    var parts = relPath.split('/')
+    var dirs = []
+    for (var i = 0; i < parts.length - 1; i++) {
+      dirs.push(parts.slice(0, i + 1).join('/') + '/')
+    }
+    return dirs
+  }
+
+  function resolveUnder (dirHandle, relPath) {
+    var parts = relPath.split('/').filter(Boolean)
+    if (!parts.length) return Promise.resolve(false)
+    function step (handle, idx) {
+      if (idx === parts.length - 1) {
+        return handle.getFileHandle(parts[idx]).then(function () { return true }).catch(function () { return false })
+      }
+      return handle.getDirectoryHandle(parts[idx]).then(function (sub) {
+        return step(sub, idx + 1)
+      }).catch(function () { return false })
+    }
+    return ensurePermission(dirHandle).then(function (ok) {
+      return ok ? step(dirHandle, 0) : false
+    })
+  }
+
+  function findCurrentWorkspace () {
+    var segments = currentFilePath().split('/').filter(Boolean)
+    if (!segments.length) return Promise.resolve(null)
+    var i = 0
+    function next () {
+      if (i >= workspaces.length) return Promise.resolve(null)
+      var ws = workspaces[i++]
+      if (!ws.name) return next()
+      var idx = -1
+      for (var j = segments.length - 1; j >= 0; j--) {
+        if (segments[j] === ws.name) { idx = j; break }
+      }
+      if (idx < 0 || idx === segments.length - 1) return next()
+      var rel = segments.slice(idx + 1).join('/')
+      if (!rel) return next()
+      return resolveUnder(ws.handle, rel).then(function (ok) {
+        return ok ? { ws: ws, rel: rel } : next()
+      })
+    }
+    return next()
+  }
+
+  function quickFocus () {
+    if (location.protocol !== 'file:') return Promise.resolve(false)
+    if (!workspaces.length) return Promise.resolve(false)
+    var path = currentFilePath()
+    if (!path || !MARKDOWN_RE.test(path)) return Promise.resolve(false)
+    return findCurrentWorkspace().then(function (match) {
+      if (!match) return false
+      var ws = match.ws
+      activeId = ws.id
+      ws.active = match.rel
+      if (!ws.open) ws.open = []
+      ancestorDirs(match.rel).forEach(function (d) {
+        if (ws.open.indexOf(d) < 0) ws.open.push(d)
+      })
+      scrollToActive = true
+      return persistWorkspaces().then(function () {
+        renderWorkspaces()
+        return listTree().then(function () { return true })
+      })
+    })
+  }
+
   // ---- sidebar UI ----
   function setSideMode (mode) {
     sideMode = mode
     $('#__mdv_tab_files').classList.toggle('active', mode === 'files')
     $('#__mdv_tab_outline').classList.toggle('active', mode === 'outline')
-    $('#__mdv_tree').style.display = mode === 'files' ? '' : 'none'
+    $('#__mdv_tree_wrap').style.display = mode === 'files' ? '' : 'none'
     $('#__mdv_outline').style.display = mode === 'outline' ? '' : 'none'
     if (mode === 'outline') buildOutline()
   }
@@ -655,11 +778,12 @@
       activeId = data.active || null
       if (activeId && !activeWs()) activeId = workspaces.length ? workspaces[0].id : null
       renderWorkspaces()
-      if (!activeHandle()) {
-        listTree()
-        return
-      }
-      return ensurePermission(activeHandle()).then(function (ok) {
+      return quickFocus()
+    }).then(function (focused) {
+      if (focused) return
+      var handle = activeHandle()
+      if (!handle) { listTree(); return }
+      return ensurePermission(handle).then(function (ok) {
         if (ok) return listTree()
         showGrant(true)
       })
@@ -679,6 +803,7 @@
   toggle.addEventListener('click', toggleSidebar)
   $('#__mdv_tab_files').addEventListener('click', function () { setSideMode('files') })
   $('#__mdv_tab_outline').addEventListener('click', function () { setSideMode('outline') })
+  $('#__mdv_expand').addEventListener('click', toggleExpandAll)
   $('#__mdv_outline').addEventListener('click', function (e) {
     var a = e.target.closest('a')
     if (!a) return
