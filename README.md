@@ -21,11 +21,18 @@ English | [中文](README.zh-CN.md)
 - MathJax formulas ([mathjax])
 - Mermaid diagrams ([mermaid])
 - Convert emoji shortnames (icons provided free by [EmojiOne][emojione])
-- Remember reading position per file
+- Remember scroll position
 - Markdown Content-Type detection
 - Configurable Markdown file path detection
 - Settings synchronization
 - Raw and rendered markdown views
+- Full-page reader
+- Free and Open Source
+
+### Added in this fork
+
+> The features below are additions to the [original Markdown Viewer](https://github.com/simov/markdown-viewer) and do not exist upstream.
+
 - Sidebar directory browser (workspace-based)
 - File tree with expand/collapse-all and outline
 - Per-workspace file-list state persistence
@@ -40,8 +47,7 @@ English | [中文](README.zh-CN.md)
 - Image lightbox (zoom and rotate)
 - File-tree keyboard navigation
 - Reading stats (word count, reading time, progress)
-- Full-page reader
-- Free and Open Source
+- Per-file reading position memory
 
 # Table of Contents
 

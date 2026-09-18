@@ -20,11 +20,18 @@
 - MathJax 公式（[mathjax]）
 - Mermaid 图表（[mermaid]）
 - Emoji 短名转换（图标由 [EmojiOne][emojione] 免费提供）
-- 记住每个文件的阅读位置
+- 记住滚动位置
 - Markdown Content-Type 检测
 - 可配置的 Markdown 文件路径检测
 - 设置同步
 - 原始和渲染 Markdown 视图
+- 整页阅读器
+- 免费开源
+
+### 本仓库新增
+
+> 以下功能是对[原版 Markdown Viewer](https://github.com/simov/markdown-viewer) 的扩展，原版并不包含。
+
 - 侧边栏目录浏览器（基于工作空间）
 - 文件树一键展开/折叠 + 大纲
 - 每个工作空间的文件列表状态持久化
@@ -39,8 +46,7 @@
 - 图片灯箱（缩放、旋转）
 - 文件树键盘导航
 - 阅读统计（字数、阅读时长、进度）
-- 整页阅读器
-- 免费开源
+- 每个文件单独记住阅读位置
 
 # 目录
 
