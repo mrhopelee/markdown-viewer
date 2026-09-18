@@ -48,6 +48,8 @@ English | [中文](README.zh-CN.md)
 - File-tree keyboard navigation
 - Reading stats (word count, reading time, progress)
 - Per-file reading position memory
+- File tabs (switch between open files, sorted by name)
+- Export to PDF and standalone HTML
 
 # Table of Contents
 
@@ -219,7 +221,7 @@ Rendered Markdown pages get an embedded left sidebar with **Files** and **Outlin
 ## Workspaces
 
 - Click **Open Workspace** to pick a folder — each folder becomes a workspace.
-- Keep several workspaces open at once: click one to switch, `×` to close it.
+- Keep several workspaces open at once: click one to switch, right-click to close it.
 - Picking the same folder again reuses the existing workspace (no duplicates).
 - The workspace list, including the last active one, is persisted across sessions.
 - The temporary workspace is pinned to the top; other workspaces are sorted by name.
@@ -291,6 +293,16 @@ Rendered Markdown pages get an embedded left sidebar with **Files** and **Outlin
 
 - Move with `↑`/`↓`, expand/collapse with `→`/`←`, open with `Enter`.
 - Press `/` to filter files by name.
+
+## File tabs
+
+- Opening files adds them to a vertical tab bar, sorted by name.
+- Click a tab to switch files (each keeps its own scroll position); `×` closes one.
+- Right-click a tab to **close other tabs** or **close tabs below**.
+
+## Export
+
+- The **导出** (Export) button in the status bar exports the current file as a PDF (via print) or as a standalone HTML file with inlined CSS and images.
 
 ---
 
