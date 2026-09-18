@@ -25,6 +25,21 @@ md.messages = ({storage: {defaults, state, set}, compilers, mathjax, xhr, webreq
         sendResponse({err, body})
       })
     }
+    else if (req.message === 'export.css') {
+      var theme = state.theme || 'github'
+      var dark = !!req.dark
+      var files = ['/content/index.css', '/content/themes.css']
+      if (theme !== 'custom') files.push('/themes/' + theme + '.css')
+      if (state.content.syntax) files.push('/vendor/' + (dark ? 'prism-okaidia' : 'prism') + '.min.css')
+      var custom = theme === 'custom' ? ((state.custom && state.custom.theme) || '') : ''
+      Promise.all(files.map(function (f) {
+        return fetch(chrome.runtime.getURL(f)).then(function (r) { return r.text() }).catch(function () { return '' })
+      })).then(function (parts) {
+        sendResponse({css: parts.join('\n') + '\n' + custom})
+      }).catch(function (e) {
+        sendResponse({css: '', error: String(e)})
+      })
+    }
     else if (req.message === 'prism') {
       chrome.scripting.executeScript({
         target: {tabId: sender.tab.id},
