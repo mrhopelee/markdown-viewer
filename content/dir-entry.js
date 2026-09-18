@@ -43,6 +43,8 @@
   var findIdx = -1            // current find match index
   var findbarEl = null        // find bar element
   var forceInlineOpen = false // open files in-place (skip navigation) for grep jumps
+  var currentFileKey = null   // key of the file currently shown in the content area
+  var scrollPositions = {}    // fileKey -> last scrollY (persisted across reloads)
   var settings = {}
 
   // ---- styles ----
@@ -250,6 +252,8 @@
 
   // ---- file open (in-place swap) ----
   function openFileHandle (handle, relPath) {
+    var ws = activeWs()
+    var newKey = ws ? fileKey(ws, relPath) : null
     return handle.getFile().then(function (file) {
       return file.text()
     }).then(function (text) {
@@ -265,6 +269,12 @@
         contentBox.className = wrapperClass()
         contentBox.innerHTML = html
         enhanceCodeBlocks(contentBox)
+
+        if (newKey) {
+          currentFileKey = newKey
+          var savedY = scrollPositions[newKey] || 0
+          requestAnimationFrame(function () { window.scrollTo(0, savedY) })
+        }
 
         document.body.classList.add('__mdv-swapped')
         swapped = true
@@ -303,6 +313,11 @@
   function openPath (relPath) {
     var ws = activeWs()
     if (!ws) return
+    var newKey = fileKey(ws, relPath)
+    if (currentFileKey && currentFileKey !== newKey) {
+      saveCurrentScroll()
+      persistScroll()
+    }
     var url = fileUrl(ws, relPath)
     if (url && !forceInlineOpen) {
       if (!sameFileUrl(url)) location.href = url
@@ -881,14 +896,64 @@
         var tx = db.transaction('workspaces', 'readonly')
         var listReq = tx.objectStore('workspaces').get('list')
         var activeReq = tx.objectStore('workspaces').get('active')
+        var scrollReq = tx.objectStore('workspaces').get('scrollPos')
         tx.oncomplete = function () {
           db.close()
-          resolve({ list: listReq.result || [], active: activeReq.result || null })
+          resolve({ list: listReq.result || [], active: activeReq.result || null, scroll: scrollReq.result || {} })
         }
         tx.onerror = function () { db.close(); reject(tx.error) }
         tx.onabort = function () { db.close(); reject(tx.error) }
       })
     })
+  }
+
+  // ---- per-file reading position (persisted across file:// reloads) ----
+  function fileKey (ws, relPath) {
+    return ws.id + '::' + relPath
+  }
+
+  function persistScroll () {
+    var snapshot = scrollPositions
+    openDB().then(function (db) {
+      var tx = db.transaction('workspaces', 'readwrite')
+      tx.objectStore('workspaces').put(snapshot, 'scrollPos')
+      tx.oncomplete = function () { db.close() }
+      tx.onerror = function () { db.close() }
+      tx.onabort = function () { db.close() }
+    }).catch(function () {})
+  }
+
+  var scrollSaveTimer = null
+  function scheduleScrollSave () {
+    clearTimeout(scrollSaveTimer)
+    scrollSaveTimer = setTimeout(function () {
+      scrollSaveTimer = null
+      persistScroll()
+    }, 400)
+  }
+
+  function saveCurrentScroll () {
+    if (currentFileKey) scrollPositions[currentFileKey] = window.scrollY || 0
+  }
+
+  function restoreCurrentScroll () {
+    var ws = activeWs()
+    var relPath = ws && ws.active
+    if (!ws || !relPath) return
+    currentFileKey = fileKey(ws, relPath)
+    var y = scrollPositions[currentFileKey]
+    if (!y) return
+    var tries = 0
+    var attempt = function () {
+      var maxScroll = document.body.scrollHeight - window.innerHeight
+      if (maxScroll >= y || tries >= 30) {
+        window.scrollTo(0, y)
+        return
+      }
+      tries++
+      requestAnimationFrame(attempt)
+    }
+    requestAnimationFrame(attempt)
   }
 
   // ---- directory picking ----
@@ -1267,7 +1332,10 @@
       scrollToActive = true
       return persistWorkspaces().then(function () {
         renderWorkspaces()
-        return listTree().then(function () { return true })
+        return listTree().then(function () {
+          restoreCurrentScroll()
+          return true
+        })
       })
     })
   }
@@ -1683,6 +1751,7 @@
         return { id: w.id, name: w.name, handle: w.handle, kind: w.kind || 'dir', files: w.files || [], open: w.open || [], active: w.active || '', rootPath: w.rootPath || null }
       })
       activeId = data.active || null
+      scrollPositions = data.scroll || {}
       if (activeId && !activeWs()) activeId = workspaces.length ? workspaces[0].id : null
       renderWorkspaces()
       return quickFocus()
@@ -1759,6 +1828,14 @@
   window.addEventListener('scroll', function () {
     updateScrollSpy()
     updateProgress()
+    if (currentFileKey) {
+      scrollPositions[currentFileKey] = window.scrollY || 0
+      scheduleScrollSave()
+    }
+  })
+  window.addEventListener('pagehide', function () {
+    saveCurrentScroll()
+    persistScroll()
   })
   $('#__mdv_outline').addEventListener('click', function (e) {
     var a = e.target.closest('a')
