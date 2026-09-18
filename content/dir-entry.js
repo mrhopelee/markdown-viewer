@@ -350,8 +350,16 @@
   }
 
   function enhanceOneCodeBlock (pre) {
+    if (pre.classList.contains('__mdv_mermaid')) return
     if (pre.querySelector('.__mdv_code_copy')) return
     var code = pre.querySelector('code') || pre
+
+    // Mermaid reads the code element's innerHTML to recover the diagram source;
+    // injecting the copy button / line-number gutter corrupts it (parse error).
+    if (code.classList && code.classList.contains('mermaid')) {
+      pre.classList.add('__mdv_mermaid')
+      return
+    }
 
     var btn = document.createElement('button')
     btn.type = 'button'
@@ -1857,7 +1865,7 @@
       toc.style.setProperty('display', 'block', 'important')
     }
     var html = document.getElementById('_html')
-    if (html && html.querySelector('pre:not(.__mdv_code_block)')) {
+    if (html && html.querySelector('pre:not(.__mdv_code_block):not(.__mdv_mermaid)')) {
       enhanceCodeBlocks(html)
     }
   }).observe(document.body, { childList: true, subtree: true })
