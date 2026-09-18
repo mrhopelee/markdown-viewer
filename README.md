@@ -21,7 +21,7 @@ English | [中文](README.zh-CN.md)
 - MathJax formulas ([mathjax])
 - Mermaid diagrams ([mermaid])
 - Convert emoji shortnames (icons provided free by [EmojiOne][emojione])
-- Remember scroll position
+- Remember reading position per file
 - Markdown Content-Type detection
 - Configurable Markdown file path detection
 - Settings synchronization
@@ -33,6 +33,13 @@ English | [中文](README.zh-CN.md)
 - Temporary workspace for standalone files
 - Command palette (Ctrl/Cmd+P) to open files across workspaces
 - Copy file/directory path via right-click
+- Full-text search across workspaces
+- Find in the current file (Ctrl/Cmd+F)
+- Code block copy button and line numbers
+- Table scroll with sticky header
+- Image lightbox (zoom and rotate)
+- File-tree keyboard navigation
+- Reading stats (word count, reading time, progress)
 - Full-page reader
 - Free and Open Source
 
@@ -250,6 +257,34 @@ Rendered Markdown pages get an embedded left sidebar with **Files** and **Outlin
 ## Copy path
 
 - Right-click a file or directory to copy its path — absolute when known, relative otherwise.
+
+## Reading stats
+
+- The outline highlights the heading under the cursor while scrolling (scrollspy).
+- A status bar shows the word count, estimated reading time and progress.
+- Each file remembers its own scroll position, restored when you return to it.
+
+## Search
+
+- The **Search** tab runs a full-text search across every file in all workspaces and jumps to matches.
+
+## Find in file
+
+- Press `Ctrl/Cmd+F` to find in the current file, with highlighted matches and `1/N` navigation.
+
+## Code blocks
+
+- Code blocks get a copy button and line numbers.
+
+## Tables and images
+
+- Wide or tall tables scroll inside their own box with a sticky header row.
+- Click an image to open it full-screen — mouse wheel zooms, buttons rotate and reset, `Esc` closes.
+
+## Keyboard navigation
+
+- Move with `↑`/`↓`, expand/collapse with `→`/`←`, open with `Enter`.
+- Press `/` to filter files by name.
 
 ---
 
