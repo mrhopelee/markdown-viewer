@@ -45,6 +45,8 @@
   var forceInlineOpen = false // open files in-place (skip navigation) for grep jumps
   var currentFileKey = null   // key of the file currently shown in the content area
   var scrollPositions = {}    // fileKey -> last scrollY (persisted across reloads)
+  var treeNavIdx = -1         // keyboard-navigation index into the visible tree rows
+  var filterbarEl = null      // tree filter input
   var settings = {}
 
   // ---- styles ----
@@ -74,7 +76,7 @@
     '#__mdv_tabs button.active{opacity:1;border-bottom-color:#0969da}',
     'body._color-dark #__mdv_tabs button.active{border-bottom-color:#58a6ff}',
     '#__mdv_tree_wrap{flex:1;display:flex;flex-direction:column;min-height:0}',
-    '#__mdv_tree_bar{display:flex;justify-content:flex-end;padding:3px 6px}',
+    '#__mdv_tree_bar{display:flex;justify-content:flex-end;gap:6px;padding:3px 6px}',
     '#__mdv_expand{padding:2px 10px;font-size:11px;border-radius:6px;cursor:pointer;border:1px solid rgba(128,128,128,.4);background:transparent;color:inherit;opacity:.75}',
     '#__mdv_expand:hover{background:rgba(128,128,128,.15);opacity:1}',
     '#__mdv_tree{flex:1;overflow:auto;padding:6px 0}',
@@ -140,6 +142,20 @@
     '.__mdv_palette_name{flex:none;font-size:13px}',
     '.__mdv_palette_path{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;opacity:.65}',
     '.__mdv_palette_empty{padding:12px 14px;font-size:12.5px;opacity:.6}',
+    '.__mdv_table_wrap{overflow:auto;max-width:100%;max-height:75vh;margin:16px 0;-webkit-overflow-scrolling:touch}',
+    '.__mdv_table_wrap table{margin:0;border-collapse:separate;border-spacing:0}',
+    '.__mdv_table_wrap th{position:sticky;top:0;z-index:1}',
+    '#__mdv_lightbox{position:fixed;inset:0;z-index:2147483003;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.85)}',
+    '#__mdv_lightbox.__mdv-open{display:flex}',
+    '#__mdv_lightbox img{max-width:92vw;max-height:88vh;object-fit:contain;transition:transform .12s ease;cursor:zoom-out;user-select:none}',
+    '#__mdv_lightbox .__mdv_lb_close{position:fixed;top:14px;right:18px;z-index:2;width:40px;height:40px;font-size:26px;line-height:1;border:none;border-radius:50%;background:rgba(22,27,34,.7);color:#fff;cursor:pointer}',
+    '#__mdv_lightbox .__mdv_lb_close:hover{background:rgba(22,27,34,.95)}',
+    '#__mdv_lightbox .__mdv_lb_bar{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:8px;padding:6px 8px;background:rgba(22,27,34,.8);border-radius:8px;z-index:2}',
+    '#__mdv_lightbox .__mdv_lb_bar button{min-width:38px;height:34px;padding:0 10px;font-size:15px;border:none;border-radius:6px;background:rgba(255,255,255,.12);color:#fff;cursor:pointer}',
+    '#__mdv_lightbox .__mdv_lb_bar button:hover{background:rgba(255,255,255,.25)}',
+    'body.__mdv-lb-lock{overflow:hidden}',
+    '.__mdv_row.__mdv_nav{outline:1.5px solid #0969da;outline-offset:-1.5px}',
+    '#__mdv_filterbar{flex:1;min-width:0;display:none;padding:3px 8px;font-size:12px;border:1px solid rgba(128,128,128,.4);border-radius:6px;background:transparent;color:inherit;outline:none}',
     '#__mdv_content{word-wrap:break-word;max-width:100%}'
   ].join('\n')
 
@@ -164,7 +180,8 @@
     '</div>' +
     '<div id="__mdv_tree_wrap">' +
       '<div id="__mdv_tree_bar">' +
-        '<button id="__mdv_expand" type="button">展开</button>' +
+        '<input id="__mdv_filterbar" type="text" placeholder="\u7b5b\u9009\u6587\u4ef6\u2026 (Esc \u6e05\u9664)" style="display:none">' +
+        '<button id="__mdv_expand" type="button">\u5c55\u5f00</button>' +
       '</div>' +
       '<div id="__mdv_tree"></div>' +
     '</div>' +
@@ -269,6 +286,7 @@
         contentBox.className = wrapperClass()
         contentBox.innerHTML = html
         enhanceCodeBlocks(contentBox)
+        enhanceTables(contentBox)
 
         if (newKey) {
           currentFileKey = newKey
@@ -379,6 +397,96 @@
   function enhanceCodeBlocks (root) {
     if (!root) return
     root.querySelectorAll('pre').forEach(enhanceOneCodeBlock)
+  }
+
+  function enhanceTables (root) {
+    if (!root) return
+    root.querySelectorAll('table').forEach(function (table) {
+      if (table.classList.contains('__mdv_table_done')) return
+      table.classList.add('__mdv_table_done')
+      var wrap = document.createElement('div')
+      wrap.className = '__mdv_table_wrap'
+      table.parentNode.insertBefore(wrap, table)
+      wrap.appendChild(table)
+    })
+  }
+
+  // ---- image lightbox ----
+  var lightboxEl = null
+  var lbScale = 1
+  var lbRot = 0
+
+  function applyLb () {
+    lightboxEl.querySelector('img').style.transform = 'scale(' + lbScale + ') rotate(' + lbRot + 'deg)'
+  }
+
+  function closeLightbox () {
+    if (!lightboxEl) return
+    lightboxEl.classList.remove('__mdv-open')
+    document.body.classList.remove('__mdv-lb-lock')
+    var img = lightboxEl.querySelector('img')
+    img.src = ''
+    lbScale = 1
+    lbRot = 0
+    img.style.transform = ''
+  }
+
+  function openLightbox (src) {
+    ensureLightbox()
+    var img = lightboxEl.querySelector('img')
+    img.src = src
+    lbScale = 1
+    lbRot = 0
+    applyLb()
+    lightboxEl.classList.add('__mdv-open')
+    document.body.classList.add('__mdv-lb-lock')
+  }
+
+  function ensureLightbox () {
+    if (lightboxEl) return lightboxEl
+    lightboxEl = document.createElement('div')
+    lightboxEl.id = '__mdv_lightbox'
+    lightboxEl.innerHTML =
+      '<img alt="">' +
+      '<button type="button" class="__mdv_lb_close" data-lb="close" title="\u5173\u95ed">\u00D7</button>' +
+      '<div class="__mdv_lb_bar">' +
+        '<button type="button" data-lb="out" title="\u7f29\u5c0f">\u2212</button>' +
+        '<button type="button" data-lb="in" title="\u653e\u5927">+</button>' +
+        '<button type="button" data-lb="rotate" title="\u65cb\u8f6c">\u21BB</button>' +
+        '<button type="button" data-lb="reset" title="\u91cd\u7f6e">\u539f\u59cb</button>' +
+      '</div>'
+    document.body.appendChild(lightboxEl)
+
+    var img = lightboxEl.querySelector('img')
+
+    lightboxEl.addEventListener('wheel', function (e) {
+      e.preventDefault()
+      lbScale *= e.deltaY < 0 ? 1.15 : 0.87
+      lbScale = Math.max(0.05, Math.min(8, lbScale))
+      applyLb()
+    }, { passive: false })
+
+    lightboxEl.addEventListener('click', function (e) {
+      if (e.target === img) {
+        lbScale = 1
+        lbRot = 0
+        applyLb()
+        return
+      }
+      var btn = e.target.closest ? e.target.closest('button') : null
+      if (btn) {
+        var act = btn.getAttribute('data-lb')
+        if (act === 'close') closeLightbox()
+        else if (act === 'in') { lbScale = Math.min(8, lbScale * 1.25); applyLb() }
+        else if (act === 'out') { lbScale = Math.max(0.05, lbScale / 1.25); applyLb() }
+        else if (act === 'rotate') { lbRot = (lbRot + 90) % 360; applyLb() }
+        else if (act === 'reset') { lbScale = 1; lbRot = 0; applyLb() }
+        return
+      }
+      if (e.target === lightboxEl) closeLightbox()
+    })
+
+    return lightboxEl
   }
 
   // ---- local media (relative images) ----
@@ -540,6 +648,7 @@
     var el = $('#__mdv_tree')
     el.textContent = ''
     activeRow = null
+    treeNavIdx = -1
     var dirs = Array.from(root.dirs.values()).sort(function (a, b) { return naturalCompare(a.name, b.name) })
     dirs.forEach(function (d) { el.appendChild(renderDir(d, 0)) })
     root.files.sort(function (a, b) { return naturalCompare(a.name, b.name) })
@@ -596,6 +705,7 @@
     var el = $('#__mdv_tree')
     el.textContent = ''
     activeRow = null
+    treeNavIdx = -1
     var files = ws.files || []
     files.forEach(function (f) {
       var row = document.createElement('div')
@@ -720,6 +830,204 @@
     else if (!open && i >= 0) ws.open.splice(i, 1)
     else return
     persistWorkspaces()
+  }
+
+  // ---- keyboard navigation of the file tree ----
+  function treeRows () {
+    return Array.from(document.querySelectorAll('#__mdv_tree .__mdv_row')).filter(function (r) {
+      return r.offsetParent !== null // only visible rows (skips collapsed/filtered-out)
+    })
+  }
+
+  function isDirRow (row) {
+    return !row.classList.contains('__mdv_file')
+  }
+
+  function setTreeNav (idx) {
+    var rows = treeRows()
+    if (!rows.length) { treeNavIdx = -1; return }
+    if (idx < 0) idx = 0
+    if (idx >= rows.length) idx = rows.length - 1
+    treeNavIdx = idx
+    rows.forEach(function (r, i) { r.classList.toggle('__mdv_nav', i === idx) })
+    rows[idx].scrollIntoView({ block: 'nearest' })
+  }
+
+  function focusRow (row) {
+    var idx = treeRows().indexOf(row)
+    if (idx >= 0) setTreeNav(idx)
+  }
+
+  function parentDirWrap (row) {
+    if (isDirRow(row)) return row.parentElement.parentElement.closest('.__mdv_dir')
+    return row.closest('.__mdv_dir')
+  }
+
+  function moveToParent (row) {
+    var pw = parentDirWrap(row)
+    if (!pw) return
+    focusRow(pw.querySelector(':scope > .__mdv_row'))
+  }
+
+  function navLeft () {
+    var rows = treeRows()
+    var row = rows[treeNavIdx]
+    if (!row) return
+    if (isDirRow(row) && row.parentElement.classList.contains('__mdv-open')) {
+      row.click() // collapse
+      focusRow(row)
+    } else {
+      moveToParent(row)
+    }
+  }
+
+  function navRight () {
+    var rows = treeRows()
+    var row = rows[treeNavIdx]
+    if (!row || !isDirRow(row)) return
+    var wrap = row.parentElement
+    if (!wrap.classList.contains('__mdv-open')) {
+      row.click() // expand
+      focusRow(row)
+    } else {
+      setTreeNav(treeNavIdx + 1) // move to first visible child
+    }
+  }
+
+  function activateRow (row) {
+    if (row.classList.contains('__mdv_file')) {
+      activateFile(row.getAttribute('data-path'), row)
+    } else {
+      row.click() // toggle dir open/close
+      focusRow(row)
+    }
+  }
+
+  function rowLabel (row) {
+    var l = row.querySelector('.__mdv_label')
+    return (l || row).textContent.toLowerCase()
+  }
+
+  function restoreTreeVisuals () {
+    document.querySelectorAll('#__mdv_tree .__mdv_dir').forEach(function (wrap) {
+      var row = wrap.querySelector(':scope > .__mdv_row')
+      var path = row && row.getAttribute('data-copy-path')
+      var open = isDirOpen(path)
+      wrap.classList.toggle('__mdv-open', open)
+      if (row) {
+        var arrow = row.querySelector('.__mdv_arrow')
+        if (arrow) arrow.textContent = open ? '\u25BE' : '\u25B8'
+      }
+    })
+    document.querySelectorAll('#__mdv_tree .__mdv_row').forEach(function (r) { r.style.display = '' })
+  }
+
+  function syncNavIdx () {
+    var rows = treeRows()
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].classList.contains('__mdv_nav')) { treeNavIdx = i; return }
+    }
+    treeNavIdx = -1
+  }
+
+  // persist (into ws.open) the transient expansions along the current selection
+  // path, so clearing the filter keeps the selected directory reachable.
+  function persistSelectionPath () {
+    var rows = treeRows()
+    var cur = treeNavIdx >= 0 ? rows[treeNavIdx] : null
+    if (!cur) return
+    var wrap = isDirRow(cur) ? cur.parentElement : cur.closest('.__mdv_dir')
+    while (wrap && wrap.classList && wrap.classList.contains('__mdv_dir')) {
+      var row = wrap.querySelector(':scope > .__mdv_row')
+      var path = row && row.getAttribute('data-copy-path')
+      if (path && wrap.classList.contains('__mdv-open')) toggleDirOpen(path, true)
+      wrap = wrap.parentElement ? wrap.parentElement.closest('.__mdv_dir') : null
+    }
+  }
+
+  function applyTreeFilter (q) {
+    q = (q || '').trim().toLowerCase()
+    var rows = document.querySelectorAll('#__mdv_tree .__mdv_row')
+    if (!q) {
+      rows.forEach(function (r) { r.style.display = '' })
+      restoreTreeVisuals()
+      syncNavIdx()
+      return
+    }
+    treeNavIdx = -1
+    document.querySelectorAll('#__mdv_tree .__mdv_row.__mdv_nav').forEach(function (r) { r.classList.remove('__mdv_nav') })
+    rows.forEach(function (row) {
+      if (row.classList.contains('__mdv_file')) {
+        row.style.display = rowLabel(row).indexOf(q) >= 0 ? '' : 'none'
+        return
+      }
+      var wrap = row.parentElement
+      var hasMatch = Array.from(wrap.querySelectorAll('.__mdv_file')).some(function (f) {
+        return rowLabel(f).indexOf(q) >= 0
+      }) || rowLabel(row).indexOf(q) >= 0
+      row.style.display = hasMatch ? '' : 'none'
+      if (hasMatch) {
+        wrap.classList.add('__mdv-open')
+        var arrow = row.querySelector('.__mdv_arrow')
+        if (arrow) arrow.textContent = '\u25BE'
+      }
+    })
+  }
+
+  function ensureFilterbar () {
+    if (filterbarEl) return filterbarEl
+    filterbarEl = $('#__mdv_filterbar')
+    filterbarEl.addEventListener('input', function () { applyTreeFilter(filterbarEl.value) })
+    filterbarEl.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        clearTreeFilter()
+        return
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        e.stopPropagation()
+        var rows = treeRows()
+        if (rows.length) setTreeNav(treeNavIdx < 0 ? 0 : treeNavIdx + 1)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        e.stopPropagation()
+        var rows = treeRows()
+        if (rows.length) setTreeNav(treeNavIdx < 0 ? rows.length - 1 : treeNavIdx - 1)
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        e.stopPropagation()
+        var rows = treeRows()
+        var row = treeNavIdx >= 0 ? rows[treeNavIdx] : null
+        if (row) {
+          activateRow(row)
+          if (row.classList.contains('__mdv_file')) clearTreeFilter()
+        }
+      }
+    })
+    return filterbarEl
+  }
+
+  function openFilter () {
+    ensureFilterbar()
+    filterbarEl.style.display = 'block'
+    filterbarEl.focus()
+    treeNavIdx = -1
+    document.querySelectorAll('#__mdv_tree .__mdv_row.__mdv_nav').forEach(function (r) { r.classList.remove('__mdv_nav') })
+  }
+
+  function clearTreeFilter () {
+    if (filterbarEl) {
+      filterbarEl.value = ''
+      filterbarEl.style.display = 'none'
+      filterbarEl.blur()
+    }
+    persistSelectionPath()
+    applyTreeFilter('')
   }
 
   function highlightRow (row) {
@@ -1778,6 +2086,8 @@
     document.body.classList.add('__mdv-sidebar-on')
     bar.classList.remove('__mdv-hidden')
     enhanceCodeBlocks(document.getElementById('_html'))
+    enhanceTables(document.getElementById('_html'))
+    ensureLightbox()
     updateReadingStats()
     refreshSpy()
     updateProgress()
@@ -1868,6 +2178,9 @@
     if (html && html.querySelector('pre:not(.__mdv_code_block):not(.__mdv_mermaid)')) {
       enhanceCodeBlocks(html)
     }
+    if (html && html.querySelector('table:not(.__mdv_table_done)')) {
+      enhanceTables(html)
+    }
   }).observe(document.body, { childList: true, subtree: true })
 
   // re-add line numbers after Prism highlights (highlighting replaces the code's
@@ -1881,6 +2194,51 @@
       }
     })
   }
+
+  // open the lightbox when a content image is clicked
+  document.addEventListener('click', function (e) {
+    if (lightboxEl && lightboxEl.classList.contains('__mdv-open')) return
+    var t = e.target
+    if (!t || t.nodeName !== 'IMG') return
+    if (t.closest('#__mdv_lightbox')) return
+    if (!t.closest('#_html, #__mdv_content')) return
+    var src = t.currentSrc || t.src
+    if (src) openLightbox(src)
+  })
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && lightboxEl && lightboxEl.classList.contains('__mdv-open')) closeLightbox()
+  })
+
+  // file-tree keyboard navigation (↑/↓, Enter, ←/→, / filter)
+  document.addEventListener('keydown', function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return
+    if (sideMode !== 'files' || !sidebarOn) return
+    if (lightboxEl && lightboxEl.classList.contains('__mdv-open')) return
+    if (paletteEl && paletteEl.style.display !== 'none') return
+    var t = e.target
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+
+    if (e.key === '/') {
+      e.preventDefault()
+      openFilter()
+      return
+    }
+    var rows = treeRows()
+    if (!rows.length) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setTreeNav(treeNavIdx < 0 ? 0 : treeNavIdx + 1)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setTreeNav(treeNavIdx < 0 ? rows.length - 1 : treeNavIdx - 1)
+    } else if (e.key === 'Enter') {
+      if (treeNavIdx >= 0 && rows[treeNavIdx]) { e.preventDefault(); activateRow(rows[treeNavIdx]) }
+    } else if (e.key === 'ArrowLeft') {
+      if (treeNavIdx >= 0 && rows[treeNavIdx]) { e.preventDefault(); navLeft() }
+    } else if (e.key === 'ArrowRight') {
+      if (treeNavIdx >= 0 && rows[treeNavIdx]) { e.preventDefault(); navRight() }
+    }
+  })
 
   init()
 })()
