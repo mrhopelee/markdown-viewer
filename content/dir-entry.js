@@ -170,6 +170,14 @@
     '.__mdv_file_tab .__mdv_ft_close{flex:none;width:15px;height:15px;line-height:1;border:none;background:transparent;color:inherit;font-size:13px;cursor:pointer;border-radius:3px;opacity:.6;padding:0}',
     '.__mdv_file_tab .__mdv_ft_close:hover{background:rgba(128,128,128,.25);opacity:1}',
     '.__mdv_file_tab.__mdv_ft_active{background:rgba(9,105,218,.15);border-color:#0969da}',
+    '#__mdv_zen{flex:none;padding:0 6px;font-size:11px;border:none;background:transparent;color:inherit;cursor:pointer;border-radius:4px;opacity:.8}',
+    '#__mdv_zen:hover{background:rgba(128,128,128,.15);opacity:1}',
+    'body.__mdv-zen{padding-left:0!important}',
+    'body.__mdv-zen #__mdv_sidebar,body.__mdv-zen #__mdv_toggle{display:none!important}',
+    '#__mdv_zen_exit{position:fixed;top:10px;right:14px;z-index:2147483001;display:none;padding:4px 12px;font-size:12px;border-radius:6px;cursor:pointer;border:1px solid rgba(128,128,128,.4);background:rgba(246,248,250,.9);color:#24292f;opacity:.35;transition:opacity .15s}',
+    '#__mdv_zen_exit:hover{opacity:1}',
+    'body._color-dark #__mdv_zen_exit{background:rgba(22,27,34,.9);color:#c9d1d9}',
+    'body.__mdv-zen #__mdv_zen_exit{display:block}',
     '#__mdv_content{word-wrap:break-word;max-width:100%}'
   ].join('\n')
 
@@ -209,6 +217,7 @@
       '<span id="__mdv_status_words"></span>' +
       '<span id="__mdv_status_time"></span>' +
       '<span id="__mdv_status_progress"></span>' +
+      '<button id="__mdv_zen" type="button">\u4e13\u6ce8</button>' +
       '<button id="__mdv_export" type="button">\u5bfc\u51fa</button>' +
     '</div>'
   document.body.appendChild(bar)
@@ -602,6 +611,27 @@
         downloadHtml(wrapper.outerHTML, css)
       })
     })
+  }
+
+  // ---- zen (focus) mode ----
+  var zenOn = false
+  var zenExitEl = null
+
+  function ensureZenExit () {
+    if (zenExitEl) return zenExitEl
+    zenExitEl = document.createElement('button')
+    zenExitEl.id = '__mdv_zen_exit'
+    zenExitEl.type = 'button'
+    zenExitEl.textContent = '\u9000\u51fa\u4e13\u6ce8'
+    zenExitEl.addEventListener('click', function () { setZen(false) })
+    document.body.appendChild(zenExitEl)
+    return zenExitEl
+  }
+
+  function setZen (on) {
+    zenOn = on
+    document.body.classList.toggle('__mdv-zen', on)
+    if (on) ensureZenExit()
   }
 
   // ---- file tabs ----
@@ -2387,6 +2417,7 @@
   $('#__mdv_tab_outline').addEventListener('click', function () { setSideMode('outline') })
   $('#__mdv_tab_search').addEventListener('click', function () { setSideMode('search') })
   $('#__mdv_expand').addEventListener('click', toggleExpandAll)
+  $('#__mdv_zen').addEventListener('click', function () { setZen(true) })
   $('#__mdv_export').addEventListener('click', function (e) {
     e.stopPropagation()
     showExportMenu(e.currentTarget)
@@ -2431,6 +2462,12 @@
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
       e.preventDefault()
       openFind()
+    }
+  })
+  document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
+      e.preventDefault()
+      setZen(!zenOn)
     }
   })
   window.addEventListener('scroll', function () {
