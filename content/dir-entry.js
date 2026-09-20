@@ -162,7 +162,7 @@
     'body._color-dark #__mdv_export_menu{background:#161b22;color:#c9d1d9}',
     '#__mdv_export_menu .__mdv_export_item{padding:6px 12px;font-size:12.5px;cursor:pointer;white-space:nowrap}',
     '#__mdv_export_menu .__mdv_export_item:hover{background:rgba(9,105,218,.15)}',
-    '@media print{#__mdv_sidebar,#__mdv_toggle,#__mdv_findbar,#__mdv_lightbox,#__mdv_filterbar,#__mdv_menu,#__mdv_palette,#__mdv_export_menu{display:none!important}body.__mdv-sidebar-on{padding-left:0!important}}',
+    '@media print{#__mdv_sidebar,#__mdv_toggle,#__mdv_findbar,#__mdv_lightbox,#__mdv_filterbar,#__mdv_menu,#__mdv_palette,#__mdv_export_menu,#__mdv_breadcrumb,#__mdv_top,#__mdv_zen_exit{display:none!important}body.__mdv-sidebar-on{padding-left:0!important}}',
     '#__mdv_file_tabs{display:flex;flex-direction:column;overflow-y:auto;max-height:30vh;padding:4px 6px;gap:3px;border-bottom:1px solid rgba(128,128,128,.3)}',
     '#__mdv_file_tabs:empty{display:none}',
     '.__mdv_file_tab{display:flex;align-items:center;gap:4px;flex:none;width:100%;padding:4px 8px;font-size:12px;border-radius:5px;border:1px solid rgba(128,128,128,.35);background:transparent;color:inherit;cursor:pointer;box-sizing:border-box}',
@@ -170,6 +170,17 @@
     '.__mdv_file_tab .__mdv_ft_close{flex:none;width:15px;height:15px;line-height:1;border:none;background:transparent;color:inherit;font-size:13px;cursor:pointer;border-radius:3px;opacity:.6;padding:0}',
     '.__mdv_file_tab .__mdv_ft_close:hover{background:rgba(128,128,128,.25);opacity:1}',
     '.__mdv_file_tab.__mdv_ft_active{background:rgba(9,105,218,.15);border-color:#0969da}',
+    'pre.__mdv_code_block.__mdv_folded{max-height:220px!important;overflow:hidden!important}',
+    '.__mdv_code_fold{position:absolute;bottom:6px;right:6px;z-index:2;padding:2px 8px;font-size:11px;border-radius:5px;border:1px solid rgba(128,128,128,.4);background:rgba(246,248,250,.92);color:#24292f;cursor:pointer}',
+    'body._color-dark .__mdv_code_fold{background:rgba(22,27,34,.9);color:#c9d1d9}',
+    '#__mdv_breadcrumb{position:fixed;bottom:0;left:0;z-index:2147483000;padding:3px 14px;font-size:11.5px;border-radius:0 8px 0 0;background:rgba(246,248,250,.88);color:#24292f;opacity:.75;max-width:60vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}',
+    'body.__mdv-sidebar-on #__mdv_breadcrumb{left:300px}',
+    'body.__mdv-zen #__mdv_breadcrumb{left:0}',
+    'body._color-dark #__mdv_breadcrumb{background:rgba(22,27,34,.88);color:#c9d1d9}',
+    '#__mdv_top{position:fixed;right:18px;bottom:20px;z-index:2147483001;width:40px;height:40px;border-radius:50%;border:1px solid rgba(128,128,128,.4);background:rgba(246,248,250,.9);color:#24292f;font-size:18px;cursor:pointer;opacity:0;visibility:hidden;transition:opacity .15s;box-shadow:0 2px 8px rgba(0,0,0,.15);padding:0}',
+    '#__mdv_top.__mdv-show{opacity:.85;visibility:visible}',
+    '#__mdv_top:hover{opacity:1}',
+    'body._color-dark #__mdv_top{background:rgba(22,27,34,.9);color:#c9d1d9}',
     '#__mdv_zen{flex:none;padding:0 6px;font-size:11px;border:none;background:transparent;color:inherit;cursor:pointer;border-radius:4px;opacity:.8}',
     '#__mdv_zen:hover{background:rgba(128,128,128,.15);opacity:1}',
     'body.__mdv-zen{padding-left:0!important}',
@@ -356,6 +367,7 @@
   function openPath (relPath) {
     var ws = activeWs()
     if (!ws) return
+    updateBreadcrumb()
     var newKey = fileKey(ws, relPath)
     if (currentFileKey && currentFileKey !== newKey) {
       saveCurrentScroll()
@@ -398,6 +410,22 @@
     gutter.style.lineHeight = lh + 'px'
   }
 
+  function addFold (pre, code) {
+    var lines = code.textContent.replace(/\n+$/, '').split('\n').length
+    if (lines <= 15) return
+    pre.classList.add('__mdv_folded')
+    var btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = '__mdv_code_fold'
+    btn.textContent = '\u5c55\u5f00 ' + lines + ' \u884c'
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation()
+      var folded = pre.classList.toggle('__mdv_folded')
+      btn.textContent = folded ? '\u5c55\u5f00 ' + lines + ' \u884c' : '\u6298\u53e0'
+    })
+    pre.appendChild(btn)
+  }
+
   function enhanceOneCodeBlock (pre) {
     if (pre.classList.contains('__mdv_mermaid')) return
     if (pre.querySelector('.__mdv_code_copy')) return
@@ -423,6 +451,7 @@
 
     pre.classList.add('__mdv_code_block')
     addLineNumbers(pre, code)
+    addFold(pre, code)
   }
 
   function enhanceCodeBlocks (root) {
@@ -632,6 +661,43 @@
     zenOn = on
     document.body.classList.toggle('__mdv-zen', on)
     if (on) ensureZenExit()
+  }
+
+  // ---- breadcrumb + back-to-top ----
+  var breadcrumbEl = null
+  var topBtnEl = null
+
+  function ensureBreadcrumb () {
+    if (breadcrumbEl) return breadcrumbEl
+    breadcrumbEl = document.createElement('div')
+    breadcrumbEl.id = '__mdv_breadcrumb'
+    breadcrumbEl.style.display = 'none'
+    document.body.appendChild(breadcrumbEl)
+    return breadcrumbEl
+  }
+
+  function updateBreadcrumb () {
+    ensureBreadcrumb()
+    var ws = activeWs()
+    var rel = ''
+    if (ws && ws.active) rel = ws.kind === 'temp' ? fileNameOf(ws, ws.active) : ws.active
+    else if (location.protocol === 'file:') rel = currentFilePath()
+    breadcrumbEl.textContent = rel
+    breadcrumbEl.style.display = rel ? '' : 'none'
+  }
+
+  function ensureTopButton () {
+    if (topBtnEl) return topBtnEl
+    topBtnEl = document.createElement('button')
+    topBtnEl.id = '__mdv_top'
+    topBtnEl.type = 'button'
+    topBtnEl.textContent = '\u2191'
+    topBtnEl.title = '\u56de\u5230\u9876\u90e8'
+    topBtnEl.addEventListener('click', function () {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    })
+    document.body.appendChild(topBtnEl)
+    return topBtnEl
   }
 
   // ---- file tabs ----
@@ -2401,6 +2467,9 @@
     enhanceCodeBlocks(document.getElementById('_html'))
     enhanceTables(document.getElementById('_html'))
     ensureLightbox()
+    ensureBreadcrumb()
+    ensureTopButton()
+    updateBreadcrumb()
     updateReadingStats()
     refreshSpy()
     updateProgress()
@@ -2473,6 +2542,7 @@
   window.addEventListener('scroll', function () {
     updateScrollSpy()
     updateProgress()
+    if (topBtnEl) topBtnEl.classList.toggle('__mdv-show', window.scrollY > 400)
     if (currentFileKey) {
       scrollPositions[currentFileKey] = window.scrollY || 0
       scheduleScrollSave()
