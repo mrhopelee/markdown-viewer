@@ -50,6 +50,9 @@ English | [中文](README.zh-CN.md)
 - Per-file reading position memory
 - File tabs (switch between open files, sorted by name)
 - Export to PDF and standalone HTML
+- Zen (focus) reading mode
+- Code block folding
+- Breadcrumb and back-to-top
 
 # Table of Contents
 
@@ -283,6 +286,7 @@ Rendered Markdown pages get an embedded left sidebar with **Files** and **Outlin
 ## Code blocks
 
 - Code blocks get a copy button and line numbers.
+- Code blocks longer than 15 lines are collapsed by default, with an expand/collapse toggle.
 
 ## Tables and images
 
@@ -303,6 +307,16 @@ Rendered Markdown pages get an embedded left sidebar with **Files** and **Outlin
 ## Export
 
 - The **导出** (Export) button in the status bar exports the current file as a PDF (via print) or as a standalone HTML file with inlined CSS and images.
+
+## Zen mode
+
+- The **专注** (Focus) button — or `Ctrl/Cmd+Shift+Z` — hides the sidebar for immersive reading.
+- A subtle **退出专注** (Exit focus) button in the top-right corner restores it.
+
+## Breadcrumb and back-to-top
+
+- The current file's relative path is shown at the bottom-left of the content area.
+- A back-to-top button fades in at the bottom-right after scrolling down.
 
 ---
 
