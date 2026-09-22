@@ -141,6 +141,14 @@ var Popup = () => {
 
     advanced: () => {
       chrome.runtime.sendMessage({message: 'popup.advanced'})
+    },
+
+    openReader: () => {
+      chrome.runtime.sendMessage({message: 'reader.open'})
+    },
+
+    openTmpNote: () => {
+      chrome.runtime.sendMessage({message: 'tmpnote.open'})
     }
   }
 
@@ -302,6 +310,21 @@ var Popup = () => {
         onclick: events.advanced
         },
         'Advanced Options'
+      ),
+
+      m('.m-open-row',
+        m('button.mdc-button mdc-button--raised m-button', {
+          oncreate: oncreate.ripple,
+          onclick: events.openReader
+          },
+          '\u6253\u5f00\u6d4f\u89c8\u754c\u9762'
+        ),
+        m('button.mdc-button mdc-button--raised m-button', {
+          oncreate: oncreate.ripple,
+          onclick: events.openTmpNote
+          },
+          '\u6253\u5f00 /tmp \u7b14\u8bb0'
+        )
       )
     )
 

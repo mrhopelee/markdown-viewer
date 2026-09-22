@@ -71,6 +71,10 @@ body.dark .m-button {
 /*advanced options button*/
 #popup button:nth-child(2n+3) { float: right; margin-top: 20px; }
 
+/*open actions row (browsing interface + tmp note)*/
+.m-open-row { display: flex; gap: 8px; padding-top: 20px; clear: both; }
+.m-open-row .m-button { flex: 1; }
+
 .m-button {
   background-color: #ececec !important;
   color: #000 !important;

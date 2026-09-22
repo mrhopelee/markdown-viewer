@@ -125,6 +125,10 @@ md.messages = ({storage: {defaults, state, set}, compilers, mathjax, xhr, webreq
       chrome.tabs.create({url: chrome.runtime.getURL('/reader/index.html')})
       sendResponse()
     }
+    else if (req.message === 'tmpnote.open') {
+      chrome.tabs.create({url: 'file:///tmp/notes.md'})
+      sendResponse()
+    }
 
     // origins view
     else if (req.message === 'options.origins') {

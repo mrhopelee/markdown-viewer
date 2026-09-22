@@ -24,6 +24,7 @@
   var workspaces = []          // [{ id, name, kind, handle | files }] in open order
   var activeId = null          // id of the active workspace
   var TEMP_WS_ID = '__mdv_temp' // fixed id of the temporary workspace
+  var TMP_NOTE_URL = 'file:///tmp/notes.md' // default note opened by the "打开 /tmp 笔记" button
   var fileMap = new Map()      // relative path -> FileSystemFileHandle
   var currentDir = ''          // directory of the swapped file
   var swapped = false          // showing swapped content vs original page content
@@ -203,6 +204,7 @@
     '<div id="__mdv_head">' +
       '<button id="__mdv_file_pick" type="button">打开文件</button>' +
       '<button id="__mdv_pick" type="button">打开工作空间</button>' +
+      '<button id="__mdv_tmp_note" type="button" title="打开 /tmp/notes.md">打开 /tmp 笔记</button>' +
       '<button id="__mdv_grant" type="button" style="display:none">重新授权</button>' +
     '</div>' +
     '<div id="__mdv_ws_list"></div>' +
@@ -1169,8 +1171,29 @@
 
   function showWorkspaceMenu (x, y, wsId) {
     hideContextMenu()
+    var ws = null
+    for (var i = 0; i < workspaces.length; i++) {
+      if (workspaces[i].id === wsId) { ws = workspaces[i]; break }
+    }
     contextMenu = document.createElement('div')
     contextMenu.id = '__mdv_menu'
+
+    if (ws && ws.kind === 'dir') {
+      var setRoot = document.createElement('div')
+      setRoot.className = '__mdv_menu_item'
+      setRoot.textContent = '\u8bbe\u7f6e\u6839\u8def\u5f84'
+      setRoot.addEventListener('click', function (e) {
+        e.stopPropagation()
+        var path = window.prompt('\u8f93\u5165\u5de5\u4f5c\u7a7a\u95f4\u6839\u76ee\u5f55\u7684\u7edd\u5bf9\u8def\u5f84\uff08\u5982 /Users/me/notes\uff09', ws.rootPath || '')
+        hideContextMenu()
+        if (path == null) return
+        path = path.trim()
+        if (path && path.charAt(path.length - 1) !== '/') path += '/'
+        ws.rootPath = path || null
+        persistWorkspaces()
+      })
+      contextMenu.appendChild(setRoot)
+    }
 
     var item = document.createElement('div')
     item.className = '__mdv_menu_item'
@@ -1184,7 +1207,7 @@
     contextMenu.appendChild(item)
     document.body.appendChild(contextMenu)
     contextMenu.style.left = Math.min(x, window.innerWidth - 220) + 'px'
-    contextMenu.style.top = Math.min(y, window.innerHeight - 60) + 'px'
+    contextMenu.style.top = Math.min(y, window.innerHeight - 100) + 'px'
   }
 
   function isDirOpen (path) {
@@ -2477,6 +2500,9 @@
 
   $('#__mdv_pick').addEventListener('click', pickDirectory)
   $('#__mdv_file_pick').addEventListener('click', pickFile)
+  $('#__mdv_tmp_note').addEventListener('click', function () {
+    location.href = TMP_NOTE_URL
+  })
   $('#__mdv_grant').addEventListener('click', function () {
     var handle = activeHandle()
     if (handle) ensurePermission(handle).then(function (ok) { if (ok) listTree() })
