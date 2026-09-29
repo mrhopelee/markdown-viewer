@@ -49,6 +49,10 @@
   var fileTabs = []           // [{wsId, relPath, name}] open-file tabs (persisted)
   var treeNavIdx = -1         // keyboard-navigation index into the visible tree rows
   var filterbarEl = null      // tree filter input
+  var searchRegex = false     // regex mode for full-text search
+  var searchScope = ''        // directory prefix to scope full-text search ('' = all)
+  var highlightAllOn = false  // persistent highlight of search matches in the body
+  var helpEl = null           // keyboard shortcuts help panel
   var settings = {}
 
   // ---- styles ----
@@ -90,6 +94,25 @@
     '#__mdv_search{flex:1;display:none;flex-direction:column;min-height:0}',
     '#__mdv_search_input{width:100%;padding:8px 10px;font-size:13px;border:none;border-bottom:1px solid rgba(128,128,128,.3);background:transparent;color:inherit;outline:none;box-sizing:border-box}',
     '#__mdv_search_results{flex:1;overflow:auto;padding:4px 0}',
+    '#__mdv_search_opts{display:flex;gap:6px;padding:5px 8px;align-items:center;border-bottom:1px solid rgba(128,128,128,.3)}',
+    '#__mdv_search_regex{flex:none;display:inline-flex;align-items:center;justify-content:center;height:22px;box-sizing:border-box;padding:0 8px;font-size:11px;border-radius:4px;border:1px solid rgba(128,128,128,.4);background:transparent;color:inherit;cursor:pointer;opacity:.7;white-space:nowrap}',
+    '#__mdv_search_regex.__mdv-on{background:rgba(9,105,218,.15);border-color:#0969da;opacity:1}',
+    '#__mdv_search_scope{flex:1;height:22px;box-sizing:border-box;padding:0 6px;font-size:11.5px;background:transparent;color:inherit;border:1px solid rgba(128,128,128,.3);border-radius:4px;outline:none}',
+    '#__mdv_search_highlight_row{padding:6px 8px;border-bottom:1px solid rgba(128,128,128,.3)}',
+    '#__mdv_search_highlight{width:100%;height:26px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;font-size:11.5px;border-radius:4px;border:1px solid rgba(128,128,128,.4);background:transparent;color:inherit;cursor:pointer;opacity:.8;white-space:nowrap}',
+    '#__mdv_search_highlight.__mdv-on{background:rgba(9,105,218,.15);border-color:#0969da;opacity:1}',
+    '#__mdv_search_history{display:none;max-height:200px;overflow:auto;border-bottom:1px solid rgba(128,128,128,.3)}',
+    '#__mdv_search_history.__mdv-open{display:block}',
+    '#__mdv_search_history .__mdv_hist_item{padding:5px 12px;font-size:12px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '#__mdv_search_history .__mdv_hist_item:hover{background:rgba(9,105,218,.15)}',
+    '#__mdv_help{position:fixed;inset:0;z-index:2147483003;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.3)}',
+    '#__mdv_help.__mdv-open{display:flex}',
+    '#__mdv_help_box{width:420px;max-width:90vw;background:#f6f8fa;color:#24292f;border:1px solid rgba(128,128,128,.4);border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.3);padding:14px 16px;max-height:80vh;overflow:auto}',
+    'body._color-dark #__mdv_help_box{background:#161b22;color:#c9d1d9}',
+    '#__mdv_help_box h2{margin:0 0 10px;font-size:14px}',
+    '#__mdv_help_box .__mdv_help_row{display:flex;justify-content:space-between;gap:16px;padding:4px 0;font-size:12.5px;border-bottom:1px solid rgba(128,128,128,.15)}',
+    '#__mdv_help_box .__mdv_help_key{flex:none;font-family:monospace;background:rgba(128,128,128,.18);padding:1px 6px;border-radius:4px;white-space:nowrap}',
+    '#__mdv_help_box .__mdv_help_desc{flex:1;text-align:right;opacity:.85}',
     '.__mdv_grep_row{padding:6px 12px;cursor:pointer;border-bottom:1px solid rgba(128,128,128,.08)}',
     '.__mdv_grep_row:hover{background:rgba(128,128,128,.1)}',
     '.__mdv_grep_name{font-size:12px;font-weight:bold;margin-bottom:2px}',
@@ -224,6 +247,14 @@
     '<div id="__mdv_outline" style="display:none"></div>' +
     '<div id="__mdv_search" style="display:none">' +
       '<input id="__mdv_search_input" type="text" placeholder="搜索文件内容...">' +
+      '<div id="__mdv_search_opts">' +
+        '<button id="__mdv_search_regex" type="button" title="\u6b63\u5219\u5339\u914d">.*</button>' +
+        '<select id="__mdv_search_scope" title="\u9650\u5b9a\u641c\u7d22\u76ee\u5f55"><option value="">\u5168\u90e8\u76ee\u5f55</option></select>' +
+      '</div>' +
+      '<div id="__mdv_search_highlight_row">' +
+        '<button id="__mdv_search_highlight" type="button" title="\u9ad8\u4eae\u5f53\u524d\u6587\u4ef6\u4e2d\u7684\u6240\u6709\u547d\u4e2d">\u9ad8\u4eae\u547d\u4e2d</button>' +
+      '</div>' +
+      '<div id="__mdv_search_history"></div>' +
       '<div id="__mdv_search_results"></div>' +
     '</div>' +
     '<div id="__mdv_status">' +
@@ -325,6 +356,7 @@
         contentBox.innerHTML = html
         enhanceCodeBlocks(contentBox)
         enhanceTables(contentBox)
+        enhanceImages(contentBox)
 
         if (newKey) {
           currentFileKey = newKey
@@ -470,6 +502,14 @@
       wrap.className = '__mdv_table_wrap'
       table.parentNode.insertBefore(wrap, table)
       wrap.appendChild(table)
+    })
+  }
+
+  function enhanceImages (root) {
+    if (!root) return
+    root.querySelectorAll('img').forEach(function (img) {
+      if (!img.hasAttribute('loading')) img.setAttribute('loading', 'lazy')
+      if (!img.hasAttribute('decoding')) img.setAttribute('decoding', 'async')
     })
   }
 
@@ -2355,15 +2395,25 @@
   }
 
   function grepFiles (query) {
-    var q = query.toLowerCase()
+    var re = null
+    var q = ''
+    if (searchRegex) {
+      try { re = new RegExp(query, 'i') } catch (e) { return Promise.resolve({ error: '\u65e0\u6548\u7684\u6b63\u5219\u8868\u8fbe\u5f0f' }) }
+    } else {
+      q = query.toLowerCase()
+    }
+    var scope = searchScope
     var files = []
     workspaces.forEach(function (ws) {
       if (ws.kind === 'temp') {
         (ws.files || []).forEach(function (f) {
-          if (f.handle) files.push({ id: f.id, path: f.name, name: f.name, handle: f.handle, ws: ws })
+          if (!f.handle) return
+          if (scope && f.name.indexOf(scope) !== 0) return
+          files.push({ id: f.id, path: f.name, name: f.name, handle: f.handle, ws: ws })
         })
       } else if (wsFilesCache[ws.id]) {
         wsFilesCache[ws.id].forEach(function (f) {
+          if (scope && f.path.indexOf(scope) !== 0) return
           files.push({ path: f.path, name: f.name, handle: f.handle, ws: ws })
         })
       }
@@ -2375,8 +2425,16 @@
       var f = files[i++]
       return f.handle.getFile().then(function (file) { return file.text() }).then(function (text) {
         text.split('\n').forEach(function (line, li) {
-          var idx = line.toLowerCase().indexOf(q)
-          if (idx >= 0) results.push({ file: f, lineNo: li + 1, line: line, idx: idx })
+          var idx = -1
+          var len = 0
+          if (re) {
+            var m = line.match(re)
+            if (m) { idx = m.index; len = m[0].length }
+          } else {
+            idx = line.toLowerCase().indexOf(q)
+            len = q.length
+          }
+          if (idx >= 0) results.push({ file: f, lineNo: li + 1, line: line, idx: idx, len: len })
         })
         return next()
       }).catch(function () { return next() })
@@ -2387,6 +2445,10 @@
   function renderGrepResults (results) {
     var box = $('#__mdv_search_results')
     box.textContent = ''
+    if (results.error) {
+      box.innerHTML = '<div class="__mdv_grep_empty">' + results.error + '</div>'
+      return
+    }
     if (!results.length) {
       box.innerHTML = '<div class="__mdv_grep_empty">\u65e0\u5339\u914d\u7ed3\u679c</div>'
       return
@@ -2400,9 +2462,10 @@
       name.textContent = r.file.name + ':' + r.lineNo
       var snippet = document.createElement('div')
       snippet.className = '__mdv_grep_snippet'
+      var len = r.len || q.length
       var before = r.line.slice(0, r.idx)
-      var match = r.line.slice(r.idx, r.idx + q.length)
-      var after = r.line.slice(r.idx + q.length)
+      var match = r.line.slice(r.idx, r.idx + len)
+      var after = r.line.slice(r.idx + len)
       snippet.appendChild(document.createTextNode(before))
       var mk = document.createElement('mark')
       mk.textContent = match
@@ -2437,6 +2500,139 @@
     })
   }
 
+  // ---- search options (regex / scope / history / highlight-all) ----
+  function runSearch (q) {
+    q = (q || '').trim()
+    if (!q) {
+      $('#__mdv_search_results').innerHTML = '<div class="__mdv_grep_empty">\u8f93\u5165\u5185\u5bb9\u641c\u7d22\u6587\u4ef6\u2026</div>'
+      return
+    }
+    $('#__mdv_search_results').innerHTML = '<div class="__mdv_grep_empty">\u641c\u7d22\u4e2d\u2026</div>'
+    grepFiles(q).then(function (results) {
+      renderGrepResults(results)
+      saveSearchHistory(q)
+    })
+  }
+
+  function populateScope () {
+    var sel = $('#__mdv_search_scope')
+    if (!sel) return
+    sel.textContent = ''
+    var optAll = document.createElement('option')
+    optAll.value = ''
+    optAll.textContent = '\u5168\u90e8\u76ee\u5f55'
+    sel.appendChild(optAll)
+    var ws = activeWs()
+    if (ws && ws.kind === 'dir' && wsFilesCache[ws.id]) {
+      var dirs = new Set()
+      wsFilesCache[ws.id].forEach(function (f) {
+        var parts = f.path.split('/')
+        for (var i = 0; i < parts.length - 1; i++) dirs.add(parts.slice(0, i + 1).join('/') + '/')
+      })
+      Array.from(dirs).sort().forEach(function (d) {
+        var o = document.createElement('option')
+        o.value = d
+        o.textContent = d
+        sel.appendChild(o)
+      })
+    }
+    sel.value = searchScope || ''
+  }
+
+  var searchHistory = []
+  function loadSearchHistory () {
+    chrome.storage.local.get('searchHistory', function (res) {
+      searchHistory = (res && res.searchHistory) || []
+    })
+  }
+  function saveSearchHistory (q) {
+    if (!q) return
+    var i = searchHistory.indexOf(q)
+    if (i >= 0) searchHistory.splice(i, 1)
+    searchHistory.unshift(q)
+    if (searchHistory.length > 20) searchHistory.length = 20
+    chrome.storage.local.set({ searchHistory: searchHistory })
+  }
+  function renderSearchHistory () {
+    var box = $('#__mdv_search_history')
+    if (!box) return
+    box.textContent = ''
+    if (!searchHistory.length) { box.classList.remove('__mdv-open'); return }
+    searchHistory.forEach(function (q) {
+      var item = document.createElement('div')
+      item.className = '__mdv_hist_item'
+      item.textContent = q
+      item.addEventListener('click', function () {
+        var input = $('#__mdv_search_input')
+        input.value = q
+        box.classList.remove('__mdv-open')
+        runSearch(q)
+      })
+      box.appendChild(item)
+    })
+    box.classList.add('__mdv-open')
+  }
+
+  function toggleHighlightAll () {
+    highlightAllOn = !highlightAllOn
+    var btn = $('#__mdv_search_highlight')
+    if (btn) btn.classList.toggle('__mdv-on', highlightAllOn)
+    if (highlightAllOn) {
+      clearFind()
+      var q = $('#__mdv_search_input').value.trim()
+      var root = currentContentRoot()
+      if (root && q) findMatches = highlightMatches(root, q)
+    } else {
+      clearFind()
+    }
+  }
+
+  // ---- keyboard shortcuts help ----
+  function ensureHelp () {
+    if (helpEl) return helpEl
+    helpEl = document.createElement('div')
+    helpEl.id = '__mdv_help'
+    var box = document.createElement('div')
+    box.id = '__mdv_help_box'
+    box.innerHTML = '<h2>\u5feb\u6377\u952e</h2>'
+    var list = [
+      ['Cmd/Ctrl+P', '\u547d\u4ee4\u9762\u677f'],
+      ['Cmd/Ctrl+F', '\u5f53\u524d\u6587\u4ef6\u67e5\u627e'],
+      ['Cmd/Ctrl+Shift+Z', '\u4e13\u6ce8\u6a21\u5f0f'],
+      ['\u2191 / \u2193', '\u6587\u4ef6\u6811\u4e0a\u4e0b\u79fb\u52a8'],
+      ['\u2192 / \u2190', '\u5c55\u5f00 / \u6298\u53e0\u76ee\u5f55'],
+      ['Enter', '\u6253\u5f00\u6587\u4ef6'],
+      ['/', '\u6309\u6587\u4ef6\u540d\u8fc7\u6ee4'],
+      ['Esc', '\u5173\u95ed\u7b5b\u9009/\u67e5\u627e/\u706f\u7bb1'],
+      ['?', '\u5feb\u6377\u952e\u5e2e\u52a9']
+    ]
+    list.forEach(function (s) {
+      var row = document.createElement('div')
+      row.className = '__mdv_help_row'
+      var k = document.createElement('span')
+      k.className = '__mdv_help_key'
+      k.textContent = s[0]
+      var d = document.createElement('span')
+      d.className = '__mdv_help_desc'
+      d.textContent = s[1]
+      row.appendChild(k)
+      row.appendChild(d)
+      box.appendChild(row)
+    })
+    helpEl.appendChild(box)
+    helpEl.addEventListener('click', function (e) {
+      if (e.target === helpEl) closeHelp()
+    })
+    document.body.appendChild(helpEl)
+    return helpEl
+  }
+  function openHelp () { ensureHelp(); helpEl.classList.add('__mdv-open') }
+  function closeHelp () { if (helpEl) helpEl.classList.remove('__mdv-open') }
+  function toggleHelp () {
+    if (helpEl && helpEl.classList.contains('__mdv-open')) closeHelp()
+    else openHelp()
+  }
+
   // ---- sidebar UI ----
   function setSideMode (mode) {
     sideMode = mode
@@ -2447,7 +2643,7 @@
     $('#__mdv_outline').style.display = mode === 'outline' ? '' : 'none'
     $('#__mdv_search').style.display = mode === 'search' ? 'flex' : 'none'
     if (mode === 'outline') buildOutline()
-    if (mode === 'search') $('#__mdv_search_input').focus()
+    if (mode === 'search') { populateScope(); $('#__mdv_search_input').focus() }
   }
 
   function toggleSidebar () {
@@ -2489,10 +2685,13 @@
     bar.classList.remove('__mdv-hidden')
     enhanceCodeBlocks(document.getElementById('_html'))
     enhanceTables(document.getElementById('_html'))
+    enhanceImages(document.getElementById('_html'))
     ensureLightbox()
     ensureBreadcrumb()
     ensureTopButton()
     updateBreadcrumb()
+    loadSearchHistory()
+    populateScope()
     updateReadingStats()
     refreshSpy()
     updateProgress()
@@ -2525,17 +2724,30 @@
   $('#__mdv_search_input').addEventListener('input', function (e) {
     clearTimeout(grepTimer)
     var q = e.target.value.trim()
+    var hist = $('#__mdv_search_history')
     if (!q) {
+      if (hist) hist.classList.remove('__mdv-open')
       $('#__mdv_search_results').innerHTML = '<div class="__mdv_grep_empty">\u8f93\u5165\u5185\u5bb9\u641c\u7d22\u6587\u4ef6\u2026</div>'
       return
     }
-    $('#__mdv_search_results').innerHTML = '<div class="__mdv_grep_empty">\u641c\u7d22\u4e2d\u2026</div>'
-    grepTimer = setTimeout(function () {
-      grepFiles(q).then(function (results) {
-        renderGrepResults(results)
-      })
-    }, 350)
+    if (hist) hist.classList.remove('__mdv-open')
+    grepTimer = setTimeout(function () { runSearch(q) }, 350)
   })
+  $('#__mdv_search_input').addEventListener('focus', function (e) {
+    if (!e.target.value.trim()) renderSearchHistory()
+  })
+  $('#__mdv_search_regex').addEventListener('click', function (e) {
+    searchRegex = !searchRegex
+    e.currentTarget.classList.toggle('__mdv-on', searchRegex)
+    var q = $('#__mdv_search_input').value.trim()
+    if (q) runSearch(q)
+  })
+  $('#__mdv_search_scope').addEventListener('change', function (e) {
+    searchScope = e.target.value
+    var q = $('#__mdv_search_input').value.trim()
+    if (q) runSearch(q)
+  })
+  $('#__mdv_search_highlight').addEventListener('click', toggleHighlightAll)
   $('#__mdv_tree').addEventListener('contextmenu', function (e) {
     var row = e.target.closest('.__mdv_row')
     if (!row) return
@@ -2545,7 +2757,7 @@
     showContextMenu(e.clientX, e.clientY, absPath(path))
   })
   document.addEventListener('click', hideContextMenu)
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { hideContextMenu(); hideExportMenu() } })
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { hideContextMenu(); hideExportMenu(); closeHelp() } })
   document.addEventListener('scroll', hideContextMenu, true)
   document.addEventListener('keydown', function (e) {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
@@ -2563,6 +2775,12 @@
     if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
       e.preventDefault()
       setZen(!zenOn)
+    }
+  })
+  document.addEventListener('keydown', function (e) {
+    if (e.key === '?' && !(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable))) {
+      e.preventDefault()
+      toggleHelp()
     }
   })
   window.addEventListener('scroll', function () {
@@ -2603,6 +2821,9 @@
     }
     if (html && html.querySelector('table:not(.__mdv_table_done)')) {
       enhanceTables(html)
+    }
+    if (html && html.querySelector('img:not([loading])')) {
+      enhanceImages(html)
     }
   }).observe(document.body, { childList: true, subtree: true })
 
