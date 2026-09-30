@@ -53,6 +53,8 @@
   var searchScope = ''        // directory prefix to scope full-text search ('' = all)
   var highlightAllOn = false  // persistent highlight of search matches in the body
   var helpEl = null           // keyboard shortcuts help panel
+  var recents = []            // [{wsId, relPath, name}] recently opened files
+  var favorites = []          // [{wsId, relPath, name, anchor}] starred files
   var settings = {}
 
   // ---- styles ----
@@ -113,6 +115,9 @@
     '#__mdv_help_box .__mdv_help_row{display:flex;justify-content:space-between;gap:16px;padding:4px 0;font-size:12.5px;border-bottom:1px solid rgba(128,128,128,.15)}',
     '#__mdv_help_box .__mdv_help_key{flex:none;font-family:monospace;background:rgba(128,128,128,.18);padding:1px 6px;border-radius:4px;white-space:nowrap}',
     '#__mdv_help_box .__mdv_help_desc{flex:1;text-align:right;opacity:.85}',
+    '#__mdv_fav{flex:1;overflow:auto;padding:4px 0}',
+    '#__mdv_fav .__mdv_fav_section{padding:6px 10px 2px;font-size:11px;opacity:.7;border-bottom:1px solid rgba(128,128,128,.15)}',
+    '#__mdv_fav .__mdv_fav_row{padding-left:12px}',
     '.__mdv_grep_row{padding:6px 12px;cursor:pointer;border-bottom:1px solid rgba(128,128,128,.08)}',
     '.__mdv_grep_row:hover{background:rgba(128,128,128,.1)}',
     '.__mdv_grep_name{font-size:12px;font-weight:bold;margin-bottom:2px}',
@@ -236,6 +241,7 @@
       '<button id="__mdv_tab_files" class="active" type="button">文件</button>' +
       '<button id="__mdv_tab_outline" type="button">大纲</button>' +
       '<button id="__mdv_tab_search" type="button">搜索</button>' +
+      '<button id="__mdv_tab_fav" type="button">收藏</button>' +
     '</div>' +
     '<div id="__mdv_tree_wrap">' +
       '<div id="__mdv_tree_bar">' +
@@ -245,6 +251,7 @@
       '<div id="__mdv_tree"></div>' +
     '</div>' +
     '<div id="__mdv_outline" style="display:none"></div>' +
+    '<div id="__mdv_fav" style="display:none"></div>' +
     '<div id="__mdv_search" style="display:none">' +
       '<input id="__mdv_search_input" type="text" placeholder="搜索文件内容...">' +
       '<div id="__mdv_search_opts">' +
@@ -411,6 +418,7 @@
     if (url && !forceInlineOpen) {
       if (!sameFileUrl(url)) {
         addFileTab(ws.id, relPath, fileNameOf(ws, relPath))
+        addRecent(ws.id, relPath, fileNameOf(ws, relPath))
         location.href = url
       }
       return
@@ -418,6 +426,7 @@
     var handle = resolveHandle(ws, relPath)
     if (handle) {
       addFileTab(ws.id, relPath, fileNameOf(ws, relPath))
+      addRecent(ws.id, relPath, fileNameOf(ws, relPath))
       return openFileHandle(handle, relPath)
     }
   }
@@ -882,6 +891,126 @@
     })
   }
 
+  // ---- recents & favorites ----
+  function favKey (wsId, relPath) { return wsId + '::' + relPath }
+
+  function loadRecentsFavs () {
+    chrome.storage.local.get(['recents', 'favorites'], function (res) {
+      recents = res.recents || []
+      favorites = res.favorites || []
+      renderFav()
+    })
+  }
+  function saveRecents () { chrome.storage.local.set({ recents: recents }) }
+  function saveFavorites () { chrome.storage.local.set({ favorites: favorites }) }
+
+  function addRecent (wsId, relPath, name) {
+    var key = favKey(wsId, relPath)
+    recents = recents.filter(function (r) { return favKey(r.wsId, r.relPath) !== key })
+    recents.unshift({ wsId: wsId, relPath: relPath, name: name })
+    if (recents.length > 20) recents.length = 20
+    saveRecents()
+    renderFav()
+  }
+
+  function currentHeadingId () {
+    var content = currentContentRoot()
+    if (!content) return ''
+    var headings = content.querySelectorAll('h1,h2,h3,h4,h5,h6')
+    var id = ''
+    for (var i = 0; i < headings.length; i++) {
+      if (headings[i].getBoundingClientRect().top <= 90) id = headings[i].id || ''
+      else break
+    }
+    return id
+  }
+
+  function isFavorite (wsId, relPath) {
+    var key = favKey(wsId, relPath)
+    return favorites.some(function (f) { return favKey(f.wsId, f.relPath) === key })
+  }
+
+  function toggleFavorite (wsId, relPath, name) {
+    var key = favKey(wsId, relPath)
+    var idx = -1
+    for (var i = 0; i < favorites.length; i++) {
+      if (favKey(favorites[i].wsId, favorites[i].relPath) === key) { idx = i; break }
+    }
+    if (idx >= 0) {
+      favorites.splice(idx, 1)
+    } else {
+      favorites.unshift({ wsId: wsId, relPath: relPath, name: name, anchor: currentHeadingId() })
+    }
+    saveFavorites()
+    renderFav()
+  }
+
+  function openFavEntry (entry) {
+    var ws = null
+    for (var i = 0; i < workspaces.length; i++) {
+      if (workspaces[i].id === entry.wsId) { ws = workspaces[i]; break }
+    }
+    if (!ws) return
+    activeId = ws.id
+    ws.active = entry.relPath
+    scrollToActive = true
+    persistWorkspaces().then(function () {
+      renderWorkspaces()
+      listTree().then(function () {
+        if (entry.anchor) {
+          setTimeout(function () {
+            var el = document.getElementById(entry.anchor)
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }, 200)
+        }
+      })
+    })
+  }
+
+  function renderFav () {
+    var el = $('#__mdv_fav')
+    if (!el) return
+    el.textContent = ''
+    var addSection = function (title, list, isFav) {
+      var h = document.createElement('div')
+      h.className = '__mdv_fav_section'
+      h.textContent = title
+      el.appendChild(h)
+      if (!list.length) {
+        var empty = document.createElement('div')
+        empty.className = '__mdv_empty'
+        empty.textContent = '\u6682\u65e0'
+        el.appendChild(empty)
+        return
+      }
+      list.forEach(function (entry) {
+        var row = document.createElement('div')
+        row.className = '__mdv_row __mdv_fav_row'
+        var label = document.createElement('span')
+        label.className = '__mdv_label'
+        label.textContent = entry.name + (entry.anchor ? ' \u2192#' + entry.anchor : '')
+        label.title = entry.relPath
+        row.appendChild(label)
+        if (isFav) {
+          var close = document.createElement('button')
+          close.type = 'button'
+          close.className = '__mdv_file_close'
+          close.textContent = '\u00D7'
+          close.title = '\u53d6\u6d88\u6536\u85cf'
+          close.addEventListener('click', function (e) {
+            e.stopPropagation()
+            toggleFavorite(entry.wsId, entry.relPath, entry.name)
+          })
+          row.appendChild(close)
+        }
+        row.addEventListener('click', function () { openFavEntry(entry) })
+        el.appendChild(row)
+      })
+    }
+    addSection('\u6536\u85cf', favorites, true)
+    addSection('\u6700\u8fd1\u6253\u5f00', recents, false)
+  }
+
   // ---- local media (relative images) ----
   function resolvePath (dir, ref) {
     var stack = []
@@ -1183,7 +1312,7 @@
     if (contextMenu) { contextMenu.remove(); contextMenu = null }
   }
 
-  function showContextMenu (x, y, path) {
+  function showContextMenu (x, y, path, relPath, name) {
     hideContextMenu()
     contextMenu = document.createElement('div')
     contextMenu.id = '__mdv_menu'
@@ -1204,6 +1333,22 @@
 
     contextMenu.appendChild(label)
     contextMenu.appendChild(item)
+
+    if (relPath != null) {
+      var ws = activeWs()
+      if (ws) {
+        var favItem = document.createElement('div')
+        favItem.className = '__mdv_menu_item'
+        favItem.textContent = isFavorite(ws.id, relPath) ? '\u53d6\u6d88\u6536\u85cf' : '\u6536\u85cf'
+        favItem.addEventListener('click', function (e) {
+          e.stopPropagation()
+          toggleFavorite(ws.id, relPath, name)
+          hideContextMenu()
+        })
+        contextMenu.appendChild(favItem)
+      }
+    }
+
     document.body.appendChild(contextMenu)
     contextMenu.style.left = Math.min(x, window.innerWidth - 220) + 'px'
     contextMenu.style.top = Math.min(y, window.innerHeight - 90) + 'px'
@@ -2639,11 +2784,14 @@
     $('#__mdv_tab_files').classList.toggle('active', mode === 'files')
     $('#__mdv_tab_outline').classList.toggle('active', mode === 'outline')
     $('#__mdv_tab_search').classList.toggle('active', mode === 'search')
+    $('#__mdv_tab_fav').classList.toggle('active', mode === 'fav')
     $('#__mdv_tree_wrap').style.display = mode === 'files' ? '' : 'none'
     $('#__mdv_outline').style.display = mode === 'outline' ? '' : 'none'
     $('#__mdv_search').style.display = mode === 'search' ? 'flex' : 'none'
+    $('#__mdv_fav').style.display = mode === 'fav' ? '' : 'none'
     if (mode === 'outline') buildOutline()
     if (mode === 'search') { populateScope(); $('#__mdv_search_input').focus() }
+    if (mode === 'fav') renderFav()
   }
 
   function toggleSidebar () {
@@ -2691,6 +2839,7 @@
     ensureTopButton()
     updateBreadcrumb()
     loadSearchHistory()
+    loadRecentsFavs()
     populateScope()
     updateReadingStats()
     refreshSpy()
@@ -2710,6 +2859,7 @@
   $('#__mdv_tab_files').addEventListener('click', function () { setSideMode('files') })
   $('#__mdv_tab_outline').addEventListener('click', function () { setSideMode('outline') })
   $('#__mdv_tab_search').addEventListener('click', function () { setSideMode('search') })
+  $('#__mdv_tab_fav').addEventListener('click', function () { setSideMode('fav') })
   $('#__mdv_expand').addEventListener('click', toggleExpandAll)
   $('#__mdv_zen').addEventListener('click', function () { setZen(true) })
   $('#__mdv_export').addEventListener('click', function (e) {
@@ -2754,7 +2904,13 @@
     var path = row.getAttribute('data-copy-path')
     if (!path) return
     e.preventDefault()
-    showContextMenu(e.clientX, e.clientY, absPath(path))
+    if (row.classList.contains('__mdv_file')) {
+      var relPath = row.getAttribute('data-path')
+      var name = (row.querySelector('.__mdv_label') || row).textContent.trim()
+      showContextMenu(e.clientX, e.clientY, absPath(path), relPath, name)
+    } else {
+      showContextMenu(e.clientX, e.clientY, absPath(path))
+    }
   })
   document.addEventListener('click', hideContextMenu)
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { hideContextMenu(); hideExportMenu(); closeHelp() } })
