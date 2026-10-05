@@ -86,6 +86,10 @@
     '#__mdv_tree_bar{display:flex;justify-content:flex-end;gap:6px;padding:3px 6px}',
     '#__mdv_expand{padding:2px 10px;font-size:11px;border-radius:6px;cursor:pointer;border:1px solid rgba(128,128,128,.4);background:transparent;color:inherit;opacity:.75}',
     '#__mdv_expand:hover{background:rgba(128,128,128,.15);opacity:1}',
+    '#__mdv_refresh{padding:2px 10px;font-size:11px;border-radius:6px;cursor:pointer;border:1px solid rgba(128,128,128,.4);background:transparent;color:inherit;opacity:.75}',
+    '#__mdv_refresh:hover{background:rgba(128,128,128,.15);opacity:1}',
+    '#__mdv_search_results .__mdv_grep_more{padding:6px;text-align:center;font-size:12px;cursor:pointer;opacity:.7}',
+    '#__mdv_search_results .__mdv_grep_more:hover{background:rgba(9,105,218,.15)}',
     '#__mdv_tree{flex:1;overflow:auto;padding:6px 0}',
     '#__mdv_outline{flex:1;overflow:auto;padding:0}',
     '#__mdv_status{display:flex;gap:10px;padding:5px 10px;font-size:11px;border-top:1px solid rgba(128,128,128,.3);opacity:.8}',
@@ -115,6 +119,10 @@
     '#__mdv_help_box .__mdv_help_row{display:flex;justify-content:space-between;gap:16px;padding:4px 0;font-size:12.5px;border-bottom:1px solid rgba(128,128,128,.15)}',
     '#__mdv_help_box .__mdv_help_key{flex:none;font-family:monospace;background:rgba(128,128,128,.18);padding:1px 6px;border-radius:4px;white-space:nowrap}',
     '#__mdv_help_box .__mdv_help_desc{flex:1;text-align:right;opacity:.85}',
+    '#__mdv_help_box .__mdv_help_row.__mdv_help_click{cursor:pointer}',
+    '#__mdv_help_box .__mdv_help_row.__mdv_help_click:hover{background:rgba(9,105,218,.15)}',
+    '#__mdv_help_btn{flex:none;padding:0 6px;font-size:11px;border:none;background:transparent;color:inherit;cursor:pointer;border-radius:4px;opacity:.8}',
+    '#__mdv_help_btn:hover{background:rgba(128,128,128,.15);opacity:1}',
     '#__mdv_fav{flex:1;overflow:auto;padding:4px 0}',
     '#__mdv_fav .__mdv_fav_section{padding:6px 10px 2px;font-size:11px;opacity:.7;border-bottom:1px solid rgba(128,128,128,.15)}',
     '#__mdv_fav .__mdv_fav_row{padding-left:12px}',
@@ -246,6 +254,7 @@
     '<div id="__mdv_tree_wrap">' +
       '<div id="__mdv_tree_bar">' +
         '<input id="__mdv_filterbar" type="text" placeholder="\u7b5b\u9009\u6587\u4ef6\u2026 (Esc \u6e05\u9664)" style="display:none">' +
+        '<button id="__mdv_refresh" type="button" title="\u5237\u65b0\u6587\u4ef6\u5217\u8868">\u5237\u65b0</button>' +
         '<button id="__mdv_expand" type="button">\u5c55\u5f00</button>' +
       '</div>' +
       '<div id="__mdv_tree"></div>' +
@@ -268,6 +277,7 @@
       '<span id="__mdv_status_words"></span>' +
       '<span id="__mdv_status_time"></span>' +
       '<span id="__mdv_status_progress"></span>' +
+      '<button id="__mdv_help_btn" type="button" title="\u5feb\u6377\u952e\uff08? \uff09">\u5feb\u6377\u952e</button>' +
       '<button id="__mdv_zen" type="button">\u4e13\u6ce8</button>' +
       '<button id="__mdv_export" type="button">\u5bfc\u51fa</button>' +
     '</div>'
@@ -1744,6 +1754,25 @@
     })
   }
 
+  // re-scan the active workspace without re-opening the current file
+  function refreshTree () {
+    var ws = activeWs()
+    if (!ws) return Promise.resolve()
+    if (ws.kind === 'temp') { renderTempTree(ws); return Promise.resolve() }
+    var handle = ws.handle
+    return ensurePermission(handle).then(function (ok) {
+      if (!ok) return
+      return collect(handle, '', []).then(function (files) {
+        wsFilesCache[ws.id] = files
+        fileMap = new Map(files.map(function (f) { return [f.path, f.handle] }))
+        renderTree(buildTree(files), files.length)
+        updateExpandButton()
+        var row = findFileRow(ws.active)
+        if (row) highlightRow(row)
+      })
+    })
+  }
+
   // ---- IndexedDB (file:// origin, persists across file:// pages) ----
   // Stores an ordered workspace list (key 'list') and the active id (key 'active').
   function openDB () {
@@ -2599,28 +2628,44 @@
       return
     }
     var q = $('#__mdv_search_input').value
-    results.slice(0, 200).forEach(function (r) {
-      var row = document.createElement('div')
-      row.className = '__mdv_grep_row'
-      var name = document.createElement('div')
-      name.className = '__mdv_grep_name'
-      name.textContent = r.file.name + ':' + r.lineNo
-      var snippet = document.createElement('div')
-      snippet.className = '__mdv_grep_snippet'
-      var len = r.len || q.length
-      var before = r.line.slice(0, r.idx)
-      var match = r.line.slice(r.idx, r.idx + len)
-      var after = r.line.slice(r.idx + len)
-      snippet.appendChild(document.createTextNode(before))
-      var mk = document.createElement('mark')
-      mk.textContent = match
-      snippet.appendChild(mk)
-      snippet.appendChild(document.createTextNode(after))
-      row.appendChild(name)
-      row.appendChild(snippet)
-      row.addEventListener('click', function () { openGrepResult(r, q) })
-      box.appendChild(row)
-    })
+    var pageSize = 100
+    var shown = 0
+    var renderMore = function () {
+      results.slice(shown, shown + pageSize).forEach(function (r) {
+        var row = document.createElement('div')
+        row.className = '__mdv_grep_row'
+        var name = document.createElement('div')
+        name.className = '__mdv_grep_name'
+        name.textContent = r.file.name + ':' + r.lineNo
+        var snippet = document.createElement('div')
+        snippet.className = '__mdv_grep_snippet'
+        var len = r.len || q.length
+        var before = r.line.slice(0, r.idx)
+        var match = r.line.slice(r.idx, r.idx + len)
+        var after = r.line.slice(r.idx + len)
+        snippet.appendChild(document.createTextNode(before))
+        var mk = document.createElement('mark')
+        mk.textContent = match
+        snippet.appendChild(mk)
+        snippet.appendChild(document.createTextNode(after))
+        row.appendChild(name)
+        row.appendChild(snippet)
+        row.addEventListener('click', function () { openGrepResult(r, q) })
+        box.appendChild(row)
+      })
+      shown += pageSize
+      if (shown < results.length) {
+        var more = document.createElement('div')
+        more.className = '__mdv_grep_more'
+        more.textContent = '\u52a0\u8f7d\u66f4\u591a\uff08\u5269\u4f59 ' + (results.length - shown) + ' \u6761\uff09'
+        more.addEventListener('click', function () {
+          more.remove()
+          renderMore()
+        })
+        box.appendChild(more)
+      }
+    }
+    renderMore()
   }
 
   function openGrepResult (r, query) {
@@ -2739,21 +2784,21 @@
     helpEl.id = '__mdv_help'
     var box = document.createElement('div')
     box.id = '__mdv_help_box'
-    box.innerHTML = '<h2>\u5feb\u6377\u952e</h2>'
+    box.innerHTML = '<h2>\u5feb\u6377\u952e\uff08\u70b9\u51fb\u6761\u76ee\u53ef\u76f4\u63a5\u89e6\u53d1\uff09</h2>'
     var list = [
-      ['Cmd/Ctrl+P', '\u547d\u4ee4\u9762\u677f'],
-      ['Cmd/Ctrl+F', '\u5f53\u524d\u6587\u4ef6\u67e5\u627e'],
-      ['Cmd/Ctrl+Shift+Z', '\u4e13\u6ce8\u6a21\u5f0f'],
-      ['\u2191 / \u2193', '\u6587\u4ef6\u6811\u4e0a\u4e0b\u79fb\u52a8'],
-      ['\u2192 / \u2190', '\u5c55\u5f00 / \u6298\u53e0\u76ee\u5f55'],
-      ['Enter', '\u6253\u5f00\u6587\u4ef6'],
-      ['/', '\u6309\u6587\u4ef6\u540d\u8fc7\u6ee4'],
-      ['Esc', '\u5173\u95ed\u7b5b\u9009/\u67e5\u627e/\u706f\u7bb1'],
-      ['?', '\u5feb\u6377\u952e\u5e2e\u52a9']
+      ['Cmd/Ctrl+P', '\u547d\u4ee4\u9762\u677f', function () { openPalette() }],
+      ['Cmd/Ctrl+F', '\u5f53\u524d\u6587\u4ef6\u67e5\u627e', function () { openFind() }],
+      ['Cmd/Ctrl+Shift+Z', '\u4e13\u6ce8\u6a21\u5f0f', function () { setZen(!zenOn) }],
+      ['\u2191 / \u2193', '\u6587\u4ef6\u6811\u4e0a\u4e0b\u79fb\u52a8', null],
+      ['\u2192 / \u2190', '\u5c55\u5f00 / \u6298\u53e0\u76ee\u5f55', null],
+      ['Enter', '\u6253\u5f00\u6587\u4ef6', null],
+      ['/', '\u6309\u6587\u4ef6\u540d\u8fc7\u6ee4', function () { openFilter() }],
+      ['Esc', '\u5173\u95ed\u7b5b\u9009/\u67e5\u627e/\u706f\u7bb1', null],
+      ['?', '\u5feb\u6377\u952e\u5e2e\u52a9', null]
     ]
     list.forEach(function (s) {
       var row = document.createElement('div')
-      row.className = '__mdv_help_row'
+      row.className = '__mdv_help_row' + (s[2] ? ' __mdv_help_click' : '')
       var k = document.createElement('span')
       k.className = '__mdv_help_key'
       k.textContent = s[0]
@@ -2762,6 +2807,12 @@
       d.textContent = s[1]
       row.appendChild(k)
       row.appendChild(d)
+      if (s[2]) {
+        row.addEventListener('click', function () {
+          closeHelp()
+          s[2]()
+        })
+      }
       box.appendChild(row)
     })
     helpEl.appendChild(box)
@@ -2861,7 +2912,12 @@
   $('#__mdv_tab_search').addEventListener('click', function () { setSideMode('search') })
   $('#__mdv_tab_fav').addEventListener('click', function () { setSideMode('fav') })
   $('#__mdv_expand').addEventListener('click', toggleExpandAll)
+  $('#__mdv_refresh').addEventListener('click', refreshTree)
+  window.addEventListener('focus', function () {
+    if (sideMode === 'files') refreshTree()
+  })
   $('#__mdv_zen').addEventListener('click', function () { setZen(true) })
+  $('#__mdv_help_btn').addEventListener('click', toggleHelp)
   $('#__mdv_export').addEventListener('click', function (e) {
     e.stopPropagation()
     showExportMenu(e.currentTarget)
