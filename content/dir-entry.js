@@ -1229,10 +1229,12 @@
     el.textContent = ''
     activeRow = null
     treeNavIdx = -1
+    var frag = document.createDocumentFragment()
     var dirs = Array.from(root.dirs.values()).sort(function (a, b) { return naturalCompare(a.name, b.name) })
-    dirs.forEach(function (d) { el.appendChild(renderDir(d, 0)) })
+    dirs.forEach(function (d) { frag.appendChild(renderDir(d, 0)) })
     root.files.sort(function (a, b) { return naturalCompare(a.name, b.name) })
-    root.files.forEach(function (f) { el.appendChild(renderFile(f, 0)) })
+    root.files.forEach(function (f) { frag.appendChild(renderFile(f, 0)) })
+    el.appendChild(frag)
     if (!total) el.innerHTML = '<div class="__mdv_empty">\u6ca1\u6709\u53ef\u663e\u793a\u7684 Markdown \u6587\u4ef6</div>'
   }
 
@@ -1840,6 +1842,14 @@
       updateExpandButton()
       return restoreActiveFile()
     }
+    var cached = wsFilesCache[ws.id]
+    if (cached) {
+      showGrant(false)
+      fileMap = new Map(cached.map(function (f) { return [f.path, f.handle] }))
+      renderTree(buildTree(cached), cached.length)
+      updateExpandButton()
+      return restoreActiveFile()
+    }
     var handle = ws.handle
     return ensurePermission(handle).then(function (ok) {
       if (!ok) {
@@ -2074,10 +2084,9 @@
   function activateWorkspace (id) {
     if (id === activeId) return
     activeId = id
-    persistWorkspaces().then(function () {
-      renderWorkspaces()
-      listTree()
-    })
+    renderWorkspaces()
+    listTree()
+    persistWorkspaces()
   }
 
   function closeWorkspace (id) {
