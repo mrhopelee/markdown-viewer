@@ -46,6 +46,7 @@
   var forceInlineOpen = false // open files in-place (skip navigation) for grep jumps
   var currentFileKey = null   // key of the file currently shown in the content area
   var scrollPositions = {}    // fileKey -> last scrollY (persisted across reloads)
+  var scrollOrder = []        // fileKeys in insertion order (for LRU pruning)
   var fileTabs = []           // [{wsId, relPath, name}] open-file tabs (persisted)
   var treeNavIdx = -1         // keyboard-navigation index into the visible tree rows
   var filterbarEl = null      // tree filter input
@@ -226,7 +227,19 @@
     '#__mdv_zen_exit:hover{opacity:1}',
     'body._color-dark #__mdv_zen_exit{background:rgba(22,27,34,.9);color:#c9d1d9}',
     'body.__mdv-zen #__mdv_zen_exit{display:block}',
-    '#__mdv_content{word-wrap:break-word;max-width:100%}'
+    '#__mdv_content{word-wrap:break-word;max-width:100%}',
+    '#__mdv_root_prompt{position:fixed;inset:0;z-index:2147483005;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.3)}',
+    '#__mdv_root_prompt.__mdv-open{display:flex}',
+    '#__mdv_root_prompt .__mdv_root_box{width:380px;max-width:90vw;background:#f6f8fa;color:#24292f;border:1px solid rgba(128,128,128,.4);border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.3);padding:14px 16px}',
+    'body._color-dark #__mdv_root_prompt .__mdv_root_box{background:#161b22;color:#c9d1d9}',
+    '#__mdv_root_prompt .__mdv_root_title{font-size:13px;margin:0 0 10px}',
+    '#__mdv_root_prompt input{width:100%;box-sizing:border-box;padding:7px 10px;font-size:13px;border:1px solid rgba(128,128,128,.4);border-radius:5px;background:transparent;color:inherit;outline:none;margin-bottom:12px}',
+    '#__mdv_root_prompt input:focus{border-color:#0969da}',
+    '#__mdv_root_prompt .__mdv_root_actions{display:flex;justify-content:flex-end;gap:8px}',
+    '#__mdv_root_prompt .__mdv_root_actions button{padding:5px 14px;font-size:12px;border-radius:5px;border:1px solid rgba(128,128,128,.4);background:transparent;color:inherit;cursor:pointer}',
+    '#__mdv_root_prompt .__mdv_root_actions .__mdv_root_cancel:hover{background:rgba(128,128,128,.15)}',
+    '#__mdv_root_prompt .__mdv_root_actions .__mdv_root_confirm{background:#0969da;border-color:#0969da;color:#fff}',
+    '#__mdv_root_prompt .__mdv_root_actions .__mdv_root_confirm:hover{background:#0870d4}'
   ].join('\n')
 
   var styleEl = document.createElement('style')
@@ -415,6 +428,8 @@
     try { return decodeURIComponent(cur) === decodeURIComponent(url) } catch (e) { return false }
   }
 
+  var rootPromptedFor = null
+
   function openPath (relPath) {
     var ws = activeWs()
     if (!ws) return
@@ -423,6 +438,14 @@
     if (currentFileKey && currentFileKey !== newKey) {
       saveCurrentScroll()
       persistScroll()
+    }
+    var openInline = function () {
+      var handle = resolveHandle(ws, relPath)
+      if (handle) {
+        addFileTab(ws.id, relPath, fileNameOf(ws, relPath))
+        addRecent(ws.id, relPath, fileNameOf(ws, relPath))
+        return openFileHandle(handle, relPath)
+      }
     }
     var url = fileUrl(ws, relPath)
     if (url && !forceInlineOpen) {
@@ -433,12 +456,27 @@
       }
       return
     }
-    var handle = resolveHandle(ws, relPath)
-    if (handle) {
-      addFileTab(ws.id, relPath, fileNameOf(ws, relPath))
-      addRecent(ws.id, relPath, fileNameOf(ws, relPath))
-      return openFileHandle(handle, relPath)
+    if (ws.kind === 'dir' && !ws.rootPath && !forceInlineOpen && rootPromptedFor !== ws.id) {
+      rootPromptedFor = ws.id
+      promptForRootPath('', function (path) {
+        if (path) {
+          path = path.trim()
+          if (path.charAt(path.length - 1) !== '/') path += '/'
+          ws.rootPath = path
+          persistWorkspaces()
+          var navUrl = 'file://' + path + relPath
+          if (!sameFileUrl(navUrl)) {
+            addFileTab(ws.id, relPath, fileNameOf(ws, relPath))
+            addRecent(ws.id, relPath, fileNameOf(ws, relPath))
+            location.href = navUrl
+          }
+        } else {
+          openInline()
+        }
+      })
+      return
     }
+    return openInline()
   }
 
   function effectiveLineHeight (pre, code) {
@@ -1154,6 +1192,16 @@
     })
   }
 
+  var spyPending = false
+  function scheduleSpy () {
+    if (spyPending) return
+    spyPending = true
+    requestAnimationFrame(function () {
+      spyPending = false
+      updateScrollSpy()
+    })
+  }
+
   // ---- tree ----
   function naturalCompare (a, b) {
     return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
@@ -1322,6 +1370,60 @@
     if (contextMenu) { contextMenu.remove(); contextMenu = null }
   }
 
+  var rootPromptEl = null
+
+  function ensureRootPrompt () {
+    if (rootPromptEl) return rootPromptEl
+    rootPromptEl = document.createElement('div')
+    rootPromptEl.id = '__mdv_root_prompt'
+    rootPromptEl.innerHTML =
+      '<div class="__mdv_root_box">' +
+        '<div class="__mdv_root_title">\u8f93\u5165\u5de5\u4f5c\u7a7a\u95f4\u6839\u76ee\u5f55\u7684\u7edd\u5bf9\u8def\u5f84\uff08\u7528\u4e8e\u8df3\u8f6c file://\uff09</div>' +
+        '<input type="text" placeholder="/Users/me/notes">' +
+        '<div class="__mdv_root_actions">' +
+          '<button type="button" class="__mdv_root_cancel">\u53d6\u6d88</button>' +
+          '<button type="button" class="__mdv_root_confirm">\u786e\u5b9a</button>' +
+        '</div>' +
+      '</div>'
+    document.body.appendChild(rootPromptEl)
+    rootPromptEl.addEventListener('click', function (e) {
+      if (e.target === rootPromptEl) closeRootPrompt()
+    })
+    var input = rootPromptEl.querySelector('input')
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { rootPromptEl.querySelector('.__mdv_root_confirm').click() }
+      if (e.key === 'Escape') { rootPromptEl.querySelector('.__mdv_root_cancel').click() }
+    })
+    return rootPromptEl
+  }
+
+  function closeRootPrompt () {
+    if (rootPromptEl) {
+      rootPromptEl.classList.remove('__mdv-open')
+      rootPromptEl.__cb = null
+    }
+  }
+
+  function promptForRootPath (initial, cb) {
+    ensureRootPrompt()
+    var input = rootPromptEl.querySelector('input')
+    input.value = initial || ''
+    rootPromptEl.__cb = cb
+    rootPromptEl.querySelector('.__mdv_root_confirm').onclick = function () {
+      var val = input.value
+      var done = rootPromptEl.__cb
+      closeRootPrompt()
+      if (done) done(val)
+    }
+    rootPromptEl.querySelector('.__mdv_root_cancel').onclick = function () {
+      var done = rootPromptEl.__cb
+      closeRootPrompt()
+      if (done) done(null)
+    }
+    rootPromptEl.classList.add('__mdv-open')
+    input.focus()
+  }
+
   function showContextMenu (x, y, path, relPath, name) {
     hideContextMenu()
     contextMenu = document.createElement('div')
@@ -1379,13 +1481,14 @@
       setRoot.textContent = '\u8bbe\u7f6e\u6839\u8def\u5f84'
       setRoot.addEventListener('click', function (e) {
         e.stopPropagation()
-        var path = window.prompt('\u8f93\u5165\u5de5\u4f5c\u7a7a\u95f4\u6839\u76ee\u5f55\u7684\u7edd\u5bf9\u8def\u5f84\uff08\u5982 /Users/me/notes\uff09', ws.rootPath || '')
         hideContextMenu()
-        if (path == null) return
-        path = path.trim()
-        if (path && path.charAt(path.length - 1) !== '/') path += '/'
-        ws.rootPath = path || null
-        persistWorkspaces()
+        promptForRootPath(ws.rootPath || '', function (path) {
+          if (path == null) return
+          path = path.trim()
+          if (path && path.charAt(path.length - 1) !== '/') path += '/'
+          ws.rootPath = path || null
+          persistWorkspaces()
+        })
       })
       contextMenu.appendChild(setRoot)
     }
@@ -1775,8 +1878,10 @@
 
   // ---- IndexedDB (file:// origin, persists across file:// pages) ----
   // Stores an ordered workspace list (key 'list') and the active id (key 'active').
+  var dbPromise = null
   function openDB () {
-    return new Promise(function (resolve, reject) {
+    if (dbPromise) return dbPromise
+    dbPromise = new Promise(function (resolve, reject) {
       var req = indexedDB.open('markdown-viewer-dir', 2)
       req.onupgradeneeded = function () {
         var db = req.result
@@ -1799,6 +1904,7 @@
       req.onsuccess = function () { resolve(req.result) }
       req.onerror = function () { reject(req.error) }
     })
+    return dbPromise
   }
 
   function idbSave (list, active) {
@@ -1807,9 +1913,9 @@
         var tx = db.transaction('workspaces', 'readwrite')
         tx.objectStore('workspaces').put(list, 'list')
         tx.objectStore('workspaces').put(active, 'active')
-        tx.oncomplete = function () { db.close(); resolve() }
-        tx.onerror = function () { db.close(); reject(tx.error) }
-        tx.onabort = function () { db.close(); reject(tx.error) }
+        tx.oncomplete = function () { resolve() }
+        tx.onerror = function () { reject(tx.error) }
+        tx.onabort = function () { reject(tx.error) }
       })
     })
   }
@@ -1823,11 +1929,10 @@
         var scrollReq = tx.objectStore('workspaces').get('scrollPos')
         var tabsReq = tx.objectStore('workspaces').get('fileTabs')
         tx.oncomplete = function () {
-          db.close()
           resolve({ list: listReq.result || [], active: activeReq.result || null, scroll: scrollReq.result || {}, tabs: tabsReq.result || [] })
         }
-        tx.onerror = function () { db.close(); reject(tx.error) }
-        tx.onabort = function () { db.close(); reject(tx.error) }
+        tx.onerror = function () { reject(tx.error) }
+        tx.onabort = function () { reject(tx.error) }
       })
     })
   }
@@ -1837,9 +1942,9 @@
       return new Promise(function (resolve, reject) {
         var tx = db.transaction('workspaces', 'readwrite')
         tx.objectStore('workspaces').put(tabs, 'fileTabs')
-        tx.oncomplete = function () { db.close(); resolve() }
-        tx.onerror = function () { db.close(); reject(tx.error) }
-        tx.onabort = function () { db.close(); reject(tx.error) }
+        tx.oncomplete = function () { resolve() }
+        tx.onerror = function () { reject(tx.error) }
+        tx.onabort = function () { reject(tx.error) }
       })
     })
   }
@@ -1854,9 +1959,6 @@
     openDB().then(function (db) {
       var tx = db.transaction('workspaces', 'readwrite')
       tx.objectStore('workspaces').put(snapshot, 'scrollPos')
-      tx.oncomplete = function () { db.close() }
-      tx.onerror = function () { db.close() }
-      tx.onabort = function () { db.close() }
     }).catch(function () {})
   }
 
@@ -1869,8 +1971,16 @@
     }, 400)
   }
 
+  function setScrollPos (key, y) {
+    if (!(key in scrollPositions)) scrollOrder.push(key)
+    scrollPositions[key] = y
+    while (scrollOrder.length > 200) {
+      delete scrollPositions[scrollOrder.shift()]
+    }
+  }
+
   function saveCurrentScroll () {
-    if (currentFileKey) scrollPositions[currentFileKey] = window.scrollY || 0
+    if (currentFileKey) setScrollPos(currentFileKey, window.scrollY || 0)
   }
 
   function restoreCurrentScroll () {
@@ -1979,6 +2089,11 @@
     var wasActive = id === activeId
     workspaces.splice(idx, 1)
     delete wsFilesCache[id]
+    recents = recents.filter(function (r) { return r.wsId !== id })
+    favorites = favorites.filter(function (f) { return f.wsId !== id })
+    saveRecents()
+    saveFavorites()
+    renderFav()
     if (wasActive) {
       activeId = workspaces.length ? workspaces[Math.min(idx, workspaces.length - 1)].id : null
     }
@@ -2593,27 +2708,37 @@
       }
     })
     var results = []
-    var i = 0
-    function next () {
-      if (i >= files.length) return Promise.resolve(results)
-      var f = files[i++]
+    var perFile = new Array(files.length)
+    var idx = 0
+    function worker () {
+      if (idx >= files.length) return Promise.resolve()
+      var myIdx = idx++
+      var f = files[myIdx]
       return f.handle.getFile().then(function (file) { return file.text() }).then(function (text) {
+        var r = []
         text.split('\n').forEach(function (line, li) {
-          var idx = -1
+          var midx = -1
           var len = 0
           if (re) {
             var m = line.match(re)
-            if (m) { idx = m.index; len = m[0].length }
+            if (m) { midx = m.index; len = m[0].length }
           } else {
-            idx = line.toLowerCase().indexOf(q)
+            midx = line.toLowerCase().indexOf(q)
             len = q.length
           }
-          if (idx >= 0) results.push({ file: f, lineNo: li + 1, line: line, idx: idx, len: len })
+          if (midx >= 0) r.push({ file: f, lineNo: li + 1, line: line, idx: midx, len: len })
         })
-        return next()
-      }).catch(function () { return next() })
+        perFile[myIdx] = r
+        return worker()
+      }).catch(function () { perFile[myIdx] = []; return worker() })
     }
-    return next()
+    var workers = []
+    var n = Math.min(8, files.length)
+    for (var w = 0; w < n; w++) workers.push(worker())
+    return Promise.all(workers).then(function () {
+      for (var j = 0; j < files.length; j++) results = results.concat(perFile[j] || [])
+      return results
+    })
   }
 
   function renderGrepResults (results) {
@@ -2913,8 +3038,13 @@
   $('#__mdv_tab_fav').addEventListener('click', function () { setSideMode('fav') })
   $('#__mdv_expand').addEventListener('click', toggleExpandAll)
   $('#__mdv_refresh').addEventListener('click', refreshTree)
+  var lastFocusRefreshAt = 0
   window.addEventListener('focus', function () {
-    if (sideMode === 'files') refreshTree()
+    if (sideMode !== 'files') return
+    var now = Date.now()
+    if (now - lastFocusRefreshAt < 3000) return
+    lastFocusRefreshAt = now
+    refreshTree()
   })
   $('#__mdv_zen').addEventListener('click', function () { setZen(true) })
   $('#__mdv_help_btn').addEventListener('click', toggleHelp)
@@ -2996,11 +3126,11 @@
     }
   })
   window.addEventListener('scroll', function () {
-    updateScrollSpy()
+    scheduleSpy()
     updateProgress()
     if (topBtnEl) topBtnEl.classList.toggle('__mdv-show', window.scrollY > 400)
     if (currentFileKey) {
-      scrollPositions[currentFileKey] = window.scrollY || 0
+      setScrollPos(currentFileKey, window.scrollY || 0)
       scheduleScrollSave()
     }
   })
