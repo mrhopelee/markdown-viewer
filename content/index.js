@@ -112,7 +112,7 @@ var update = (update) => {
   }
 }
 
-var render = (md) => {
+var render = (md, done) => {
   state.markdown = md
   chrome.runtime.sendMessage({
     message: 'markdown',
@@ -133,7 +133,7 @@ var render = (md) => {
       state.toc = toc.render(state.html)
     }
     state.html = anchors(state.html)
-    m.redraw()
+    done()
   })
 }
 
@@ -142,68 +142,73 @@ function mount () {
   var md = $('pre').innerText
   favicon()
 
-  m.mount($('body'), {
-    oninit: () => {
-      render(md)
-    },
-    view: () => {
-      var dom = []
+  render(md, () => {
+    // Mount into a dedicated container so mithril's initial render does not
+    // replace the sidebar that dir-entry.js appended to <body>.
+    var root = document.createElement('div')
+    root.id = '__mdv_root'
+    document.body.appendChild(root)
 
-      if (state.html) {
-        state._themes.custom = state.custom.color
+    m.mount(root, {
+      view: () => {
+        var dom = []
 
-        var color =
-          state._themes[state.theme] === 'dark' ||
-          (state._themes[state.theme] === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-          ? 'dark' : 'light'
+        if (state.html) {
+          state._themes.custom = state.custom.color
 
-        $('body').classList.remove(...Array.from($('body').classList).filter((name) => /^_theme|_color/.test(name)))
-        dom.push(m('link#_theme', {
-          onupdate: onupdate.theme,
-          rel: 'stylesheet', type: 'text/css',
-          href: state.theme !== 'custom' ? chrome.runtime.getURL(`/themes/${state.theme}.css`) : '',
-        }))
-        $('body').classList.add(`_theme-${state.theme}`, `_color-${color}`)
+          var color =
+            state._themes[state.theme] === 'dark' ||
+            (state._themes[state.theme] === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+            ? 'dark' : 'light'
 
-        if (state.content.syntax) {
-          dom.push(m('link#_prism', {
+          $('body').classList.remove(...Array.from($('body').classList).filter((name) => /^_theme|_color/.test(name)))
+          dom.push(m('link#_theme', {
+            onupdate: onupdate.theme,
             rel: 'stylesheet', type: 'text/css',
-            href: chrome.runtime.getURL(`/vendor/${color === 'dark' ? 'prism-okaidia' : 'prism'}.min.css`),
+            href: state.theme !== 'custom' ? chrome.runtime.getURL(`/themes/${state.theme}.css`) : '',
           }))
-        }
+          $('body').classList.add(`_theme-${state.theme}`, `_color-${color}`)
 
-        var theme =
-          (/github(-dark)?/.test(state.theme) ? 'markdown-body' : 'markdown-theme') +
-          (state.themes.width !== 'auto' ? ` _width-${state.themes.width}` : '')
-
-        if (state.raw) {
           if (state.content.syntax) {
-            dom.push(m('#_markdown', {oncreate: oncreate.html, onupdate: onupdate.html, class: theme},
-              m.trust(`<pre class="language-md"><code class="language-md">${_escape(state.markdown)}</code></pre>`)
-            ))
+            dom.push(m('link#_prism', {
+              rel: 'stylesheet', type: 'text/css',
+              href: chrome.runtime.getURL(`/vendor/${color === 'dark' ? 'prism-okaidia' : 'prism'}.min.css`),
+            }))
+          }
+
+          var theme =
+            (/github(-dark)?/.test(state.theme) ? 'markdown-body' : 'markdown-theme') +
+            (state.themes.width !== 'auto' ? ` _width-${state.themes.width}` : '')
+
+          if (state.raw) {
+            if (state.content.syntax) {
+              dom.push(m('#_markdown', {oncreate: oncreate.html, onupdate: onupdate.html, class: theme},
+                m.trust(`<pre class="language-md"><code class="language-md">${_escape(state.markdown)}</code></pre>`)
+              ))
+            }
+            else {
+              dom.push(m('pre#_markdown', {oncreate: oncreate.html, onupdate: onupdate.html}, state.markdown))
+            }
           }
           else {
-            dom.push(m('pre#_markdown', {oncreate: oncreate.html, onupdate: onupdate.html}, state.markdown))
+            dom.push(m('#_html', {oncreate: oncreate.html, onupdate: onupdate.html, class: theme},
+              m.trust(state.html)
+            ))
+          }
+
+          if (state.content.toc) {
+            dom.push(m('#_toc.tex2jax-ignore', m.trust(state.toc)))
+            state.raw ? $('body').classList.remove('_toc-left') : $('body').classList.add('_toc-left')
+          }
+
+          if (state.theme === 'custom') {
+            dom.push(m('style', {type: 'text/css'}, state.custom.theme))
           }
         }
-        else {
-          dom.push(m('#_html', {oncreate: oncreate.html, onupdate: onupdate.html, class: theme},
-            m.trust(state.html)
-          ))
-        }
 
-        if (state.content.toc) {
-          dom.push(m('#_toc.tex2jax-ignore', m.trust(state.toc)))
-          state.raw ? $('body').classList.remove('_toc-left') : $('body').classList.add('_toc-left')
-        }
-
-        if (state.theme === 'custom') {
-          dom.push(m('style', {type: 'text/css'}, state.custom.theme))
-        }
+        return dom
       }
-
-      return dom
-    }
+    })
   })
 }
 
