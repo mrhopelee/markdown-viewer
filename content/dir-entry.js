@@ -428,8 +428,6 @@
     try { return decodeURIComponent(cur) === decodeURIComponent(url) } catch (e) { return false }
   }
 
-  var rootPromptedFor = null
-
   function openPath (relPath) {
     var ws = activeWs()
     if (!ws) return
@@ -438,14 +436,6 @@
     if (currentFileKey && currentFileKey !== newKey) {
       saveCurrentScroll()
       persistScroll()
-    }
-    var openInline = function () {
-      var handle = resolveHandle(ws, relPath)
-      if (handle) {
-        addFileTab(ws.id, relPath, fileNameOf(ws, relPath))
-        addRecent(ws.id, relPath, fileNameOf(ws, relPath))
-        return openFileHandle(handle, relPath)
-      }
     }
     var url = fileUrl(ws, relPath)
     if (url && !forceInlineOpen) {
@@ -456,27 +446,12 @@
       }
       return
     }
-    if (ws.kind === 'dir' && !ws.rootPath && !forceInlineOpen && rootPromptedFor !== ws.id) {
-      rootPromptedFor = ws.id
-      promptForRootPath('', function (path) {
-        if (path) {
-          path = path.trim()
-          if (path.charAt(path.length - 1) !== '/') path += '/'
-          ws.rootPath = path
-          persistWorkspaces()
-          var navUrl = 'file://' + path + relPath
-          if (!sameFileUrl(navUrl)) {
-            addFileTab(ws.id, relPath, fileNameOf(ws, relPath))
-            addRecent(ws.id, relPath, fileNameOf(ws, relPath))
-            location.href = navUrl
-          }
-        } else {
-          openInline()
-        }
-      })
-      return
+    var handle = resolveHandle(ws, relPath)
+    if (handle) {
+      addFileTab(ws.id, relPath, fileNameOf(ws, relPath))
+      addRecent(ws.id, relPath, fileNameOf(ws, relPath))
+      return openFileHandle(handle, relPath)
     }
-    return openInline()
   }
 
   function effectiveLineHeight (pre, code) {
@@ -1380,7 +1355,7 @@
     rootPromptEl.id = '__mdv_root_prompt'
     rootPromptEl.innerHTML =
       '<div class="__mdv_root_box">' +
-        '<div class="__mdv_root_title">\u8f93\u5165\u5de5\u4f5c\u7a7a\u95f4\u6839\u76ee\u5f55\u7684\u7edd\u5bf9\u8def\u5f84\uff08\u7528\u4e8e\u8df3\u8f6c file://\uff09</div>' +
+        '<div class="__mdv_root_title">\u6d4f\u89c8\u5668\u65e0\u6cd5\u81ea\u52a8\u5f97\u77e5\u8be5\u76ee\u5f55\u7684\u7edd\u5bf9\u8def\u5f84\uff0c\u8bf7\u586b\u5199\u6839\u76ee\u5f55\u7edd\u5bf9\u8def\u5f84\uff08\u586b\u4e00\u6b21\u5373\u53ef\uff0c\u4e4b\u540e\u70b9\u6587\u4ef6\u8df3\u8f6c file://\uff09</div>' +
         '<input type="text" placeholder="/Users/me/notes">' +
         '<div class="__mdv_root_actions">' +
           '<button type="button" class="__mdv_root_cancel">\u53d6\u6d88</button>' +
@@ -2141,7 +2116,19 @@
       }
       return persistWorkspaces().then(function () {
         renderWorkspaces()
-        return listTree()
+        return listTree().then(function () {
+          var w = activeWs()
+          if (w && w.kind === 'dir' && !w.rootPath) {
+            promptForRootPath('', function (path) {
+              if (path) {
+                path = path.trim()
+                if (path.charAt(path.length - 1) !== '/') path += '/'
+                w.rootPath = path || null
+                persistWorkspaces()
+              }
+            })
+          }
+        })
       })
     })
   }
