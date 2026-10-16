@@ -95,6 +95,7 @@
     '#__mdv_outline{flex:1;overflow:auto;padding:0}',
     '#__mdv_status{display:flex;gap:10px;padding:5px 10px;font-size:11px;border-top:1px solid rgba(128,128,128,.3);opacity:.8}',
     '#__mdv_status span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '#__mdv_status #__mdv_version{flex:none;opacity:.6;font-size:10px;align-self:center}',
     '#__mdv_status_progress{text-align:right}',
     '#_toc a.__mdv-toc-active{color:#0969da!important;font-weight:bold!important}',
     'body._color-dark #_toc a.__mdv-toc-active{color:#58a6ff!important}',
@@ -290,6 +291,7 @@
       '<span id="__mdv_status_words"></span>' +
       '<span id="__mdv_status_time"></span>' +
       '<span id="__mdv_status_progress"></span>' +
+      '<span id="__mdv_version">v' + chrome.runtime.getManifest().version + '</span>' +
       '<button id="__mdv_help_btn" type="button" title="\u5feb\u6377\u952e\uff08? \uff09">\u5feb\u6377\u952e</button>' +
       '<button id="__mdv_zen" type="button">\u4e13\u6ce8</button>' +
       '<button id="__mdv_export" type="button">\u5bfc\u51fa</button>' +
