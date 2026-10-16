@@ -22,18 +22,25 @@
 
   var get = () => {
     if (location.protocol === 'file:') {
-      chrome.runtime.sendMessage({
-        message: 'autoreload',
-        location: location.href
-      }, (res) => {
-        if (res.err) {
-          console.error(res.err)
-          clearInterval(state.reload.interval)
-        }
-        else {
-          response(res.body)
-        }
-      })
+      try {
+        chrome.runtime.sendMessage({
+          message: 'autoreload',
+          location: location.href
+        }, (res) => {
+          if (res.err) {
+            console.error(res.err)
+            clearInterval(state.reload.interval)
+          }
+          else {
+            response(res.body)
+          }
+        })
+      }
+      catch (err) {
+        // The extension was reloaded or removed, so this content script's
+        // message context is gone. Stop polling instead of throwing every tick.
+        clearInterval(state.reload.interval)
+      }
     }
     else {
       xhr.open('GET', location.href + '?preventCache=' + Date.now(), true)
