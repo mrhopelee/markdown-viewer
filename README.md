@@ -53,6 +53,7 @@ English | [中文](README.zh-CN.md)
 - Zen (focus) reading mode
 - Code block folding
 - Breadcrumb and back-to-top
+- Interactive task-list checkboxes (saved back to the file in workspace mode)
 
 # Table of Contents
 
