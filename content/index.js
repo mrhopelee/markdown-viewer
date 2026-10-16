@@ -98,6 +98,7 @@ var onupdate = {
 
 var update = (update) => {
   scroll(update)
+  enableTaskLists()
 
   if (state.content.syntax) {
     setTimeout(() => Prism.highlightAll(), 20)
@@ -111,6 +112,62 @@ var update = (update) => {
     setTimeout(() => mj.render(), 60)
   }
 }
+
+var countTaskMarkers = (md) => {
+  var re = /^([ \t]*(?:[-*+]|\d+[.)])[ \t]+)\[([ xX])\](?=[ \t]|$)/gm
+  var n = 0
+  var m
+  while ((m = re.exec(md)) !== null) n++
+  return n
+}
+
+var toggleTaskMarkdown = (md, index, checked) => {
+  var lines = md.split('\n')
+  var re = /^([ \t]*(?:[-*+]|\d+[.)])[ \t]+)\[([ xX])\](?=[ \t]|$)/
+  var seen = -1
+  for (var i = 0; i < lines.length; i++) {
+    var m = lines[i].match(re)
+    if (!m) continue
+    seen++
+    if (seen === index) {
+      lines[i] = m[1] + (checked ? '[x]' : '[ ]') + lines[i].slice(m[0].length)
+      break
+    }
+  }
+  return lines.join('\n')
+}
+
+var enableTaskLists = () => {
+  var boxes = document.querySelectorAll('.task-list-item-checkbox')
+  if (!boxes.length) return
+  // Only enable when every rendered checkbox maps 1:1 to a source marker.
+  if (boxes.length !== countTaskMarkers(state.markdown)) return
+  boxes.forEach((box, i) => {
+    box.disabled = false
+    box.setAttribute('data-task-index', i)
+  })
+}
+
+var syncRawMarkdown = () => {
+  var pre = document.querySelector('pre')
+  if (pre) pre.textContent = state.markdown
+}
+
+var onTaskToggle = (box) => {
+  var idx = parseInt(box.getAttribute('data-task-index'), 10)
+  if (isNaN(idx)) return
+  state.markdown = toggleTaskMarkdown(state.markdown, idx, box.checked)
+  syncRawMarkdown()
+  if (typeof window.__mdv_saveMarkdown === 'function') {
+    window.__mdv_saveMarkdown(state.markdown)
+  }
+}
+
+document.addEventListener('change', (e) => {
+  var box = e.target
+  if (!box || !box.classList || !box.classList.contains('task-list-item-checkbox')) return
+  onTaskToggle(box)
+})
 
 var render = (md, done) => {
   state.markdown = md
