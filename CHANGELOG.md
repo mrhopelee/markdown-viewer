@@ -2,13 +2,13 @@
 # Change Log
 
 ## Unreleased
-- interactive task-list checkboxes that write back to the markdown source
-- task-list write-back to file via workspace file handles
-- fix task-list checkboxes not being interactive with the marked and remark compilers
-- fix markdown not re-rendering on page reload
-- stop autoreload polling after the extension is reloaded
+- interactive task-list checkboxes: click one to flip its `[ ]`/`[x]` marker in the source
+- write task-list edits back to the file through workspace file handles
+- fix task-list checkboxes staying disabled on the marked and remark compilers
+- fix markdown not re-rendering after a page reload
+- fix autoreload throwing "Extension context invalidated" after the extension reloads
 - show the extension version in the sidebar status bar
-- prompt for a directory workspace root path once when the workspace is opened
+- prompt for a directory workspace root path when the workspace opens
 
 ## v5.3 - 2024-04-30
 - custom theme support

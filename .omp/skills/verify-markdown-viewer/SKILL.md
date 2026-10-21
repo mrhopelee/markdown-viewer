@@ -96,7 +96,7 @@ content script's world and is not visible from the page). Stable handles:
   `_theme-<name>` and `_color-light|dark`).
 
 **Reload and re-navigation are safe.** The content script re-injects on a
-second navigation to a markdown URL and on `Page.reload` (F5); the rendered
+second navigation to a markdown URL and on `Page.reload` (F5). The rendered
 content persists across both. An instance can drive multiple markdown
 navigations, so a fresh instance per feature is not required.
 

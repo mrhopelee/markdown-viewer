@@ -133,7 +133,7 @@ Full **CommonMark** support including **GFM** tables and strikethrough **+**
 | **mark**       | `false` | Marked text `==a==` `<mark>`
 | **sub**        | `false` | Subscript `~a~` `<sub>`
 | **sup**        | `false` | Superscript `^a^` `<sup>`
-| **tasklists**  | `false` | Task lists `- [x]`
+| **tasklists**  | `false` | Task list checkboxes for `- [ ]` and `- [x]` |
 | **typographer**| `false` | Enable some language-neutral replacement + quotes beautification
 | **xhtmlOut**   | `false` | Use `/` to close single tags (`<br />`)
 
@@ -229,7 +229,7 @@ Rendered Markdown pages get an embedded left sidebar with **Files** and **Outlin
 - Picking the same folder again reuses the existing workspace (no duplicates).
 - The workspace list, including the last active one, is persisted across sessions.
 - The temporary workspace is pinned to the top; other workspaces are sorted by name.
-- Directory workspaces prompt once for the folder's absolute root path; with it set, files open as `file://` URLs.
+- Directory workspaces prompt once for the folder's absolute root path. With the path set, files open as `file://` URLs.
 
 ## Files
 
