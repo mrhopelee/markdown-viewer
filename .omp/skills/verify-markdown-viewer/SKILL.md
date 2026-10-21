@@ -1,6 +1,6 @@
 ---
 name: verify-markdown-viewer
-description: End-to-end verification of the Markdown Viewer browser extension. Drives the unpacked MV3 extension in Chrome for Testing over CDP, renders a markdown fixture on a file:// URL, and proves the render, syntax-highlighting, outline, theme, and raw-view features. Use when this repo's rendered-markdown behavior changes or needs proof, before committing a content/background/options/popup change.
+description: End-to-end verification of the Markdown Viewer browser extension. Drives the unpacked MV3 extension in Chrome for Testing over CDP, renders a markdown fixture on a file:// URL, and proves the render, syntax-highlighting, outline, theme, raw-view, and task-list features. Use when this repo's rendered-markdown behavior changes or needs proof, before committing a content/background/options/popup change.
 disable-model-invocation: true
 ---
 
@@ -61,7 +61,7 @@ bash .omp/skills/verify-markdown-viewer/scripts/doctor.sh "$STATE"
 It answers "is this instance worth driving" by asserting, in order: the CfT
 process is alive, the debugging port answers, an extension service-worker target
 at `/background/index.js` exists, and that worker reports
-`name == "Markdown Viewer"`, `version == "5.3"`, and file-scheme access granted.
+`name == "Markdown Viewer"`, `version == "5.3.1"`, and file-scheme access granted.
 All five checks must print `PASS` and exit 0.
 
 ## Drive
@@ -95,18 +95,14 @@ content script's world and is not visible from the page). Stable handles:
 - the active theme/color: `document.body.className` (expect
   `_theme-<name>` and `_color-light|dark`).
 
-**Load a markdown URL only once per instance.** The content script injects
-reliably on the first navigation to a markdown URL, but a second navigation to
-the same URL, and even `Page.reload` (F5), does not re-inject: `detect.tab` in
-`background/detect.js` skips injection when `window.state` is already set, and
-that flag races across a reload, so the rendered content disappears and the page
-is left with a sidebar and an empty content area. This is a real, reproducible
-extension bug, not a harness flake. Work around it by launching a fresh instance
-for each feature (or at least for each markdown-file assertion).
+**Reload and re-navigation are safe.** The content script re-injects on a
+second navigation to a markdown URL and on `Page.reload` (F5); the rendered
+content persists across both. An instance can drive multiple markdown
+navigations, so a fresh instance per feature is not required.
 
-To drive the popup-backed features (theme switch, raw view), open the popup
-**first**, mutate the control, then load the markdown file as that instance's
-single markdown navigation:
+To drive the popup-backed features (theme switch, raw view), navigate to the
+popup, mutate a control, then navigate back to the markdown file so the content
+script re-injects with the new settings:
 
 ```bash
 EXT_ID=$(python3 -c "import json;print(json.load(open('$STATE'))['extensionId'])")

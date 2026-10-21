@@ -18,8 +18,7 @@ The extension renders markdown with a selectable theme. The default is `github`
 
 Preconditions:
 
-- A fresh `launch.sh` state file in `$STATE` (do not reuse an instance that has
-  already loaded a markdown URL), `doctor.sh "$STATE"` all `PASS`.
+- `launch.sh` state file in `$STATE`, `doctor.sh "$STATE"` all `PASS`.
 - `FIX=$(python3 -c "import json;print(json.load(open('$STATE'))['fixtures'])")`
   and `EXT_ID=$(python3 -c "import json;print(json.load(open('$STATE'))['extensionId'])")`.
 - The baseline is the default `github` theme; there is no need to load the file
@@ -42,9 +41,8 @@ Preconditions:
 
 - Theme switching goes through the popup select, not `chrome.storage` setters.
   The select's `value` is the theme slug; dispatch `change`, not `input`.
-- The theme re-render only happens on a fresh load. Load the markdown file once,
-  after the popup change, and never load it twice in the same instance (a second
-  markdown navigation or an F5 reload does not re-inject the content script).
+- The theme re-render happens on a fresh load. Navigate to the markdown file
+  after the popup change to observe the new theme class.
 - The popup label for the raw toggle is uppercased by CSS (`MARKDOWN`/`HTML`);
   do not confuse it with the theme select, which is the first `select` element.
 - The active theme is per-browser-profile storage. A fresh instance restores the

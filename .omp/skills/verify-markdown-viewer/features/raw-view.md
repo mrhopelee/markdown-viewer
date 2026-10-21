@@ -18,8 +18,7 @@ in a `<pre>` with no rendered `<h1>`.
 
 Preconditions:
 
-- A fresh `launch.sh` state file in `$STATE` (do not reuse an instance that has
-  already loaded a markdown URL), `doctor.sh "$STATE"` all `PASS`.
+- `launch.sh` state file in `$STATE`, `doctor.sh "$STATE"` all `PASS`.
 - `FIX=$(python3 -c "import json;print(json.load(open('$STATE'))['fixtures'])")`
   and `EXT_ID=$(python3 -c "import json;print(json.load(open('$STATE'))['extensionId'])")`.
 - The baseline is rendered view (`raw=false`); there is no need to load the file
@@ -41,6 +40,5 @@ Preconditions:
   when raw is on. It names the mode you would switch away from.
 - The sidebar stays visible in raw mode; only the content area changes. Assert
   on `h1` absence and `pre` presence, not on the sidebar.
-- Load the markdown file once, after the popup toggle, and never load it twice
-  in the same instance (a second markdown navigation or an F5 reload does not
-  re-inject the content script). A fresh instance restores `raw=false`.
+- Navigate to the markdown file after the popup toggle to observe the raw view.
+  A fresh instance restores `raw=false`.

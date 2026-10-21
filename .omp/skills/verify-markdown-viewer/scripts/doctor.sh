@@ -61,11 +61,11 @@ const result = await new Promise((resolve, reject) => {
   setTimeout(() => reject(new Error('timeout')), 8000)
 })
 const got = JSON.parse(result)
-const ok = got.name === 'Markdown Viewer' && got.version === '5.3' && got.fileAccess === true
+const ok = got.name === 'Markdown Viewer' && got.version === '5.3.1' && got.fileAccess === true
 console.log(ok ? 'PASS' : 'FAIL', `extension identity + file access (${JSON.stringify(got)})`)
 process.exit(ok ? 0 : 1)
 NODE
-check "extension is Markdown Viewer 5.3 with file access" $?
+check "extension is Markdown Viewer 5.3.1 with file access" $?
 
 if [[ "$fail" = "0" ]]; then echo "doctor: OK"; else echo "doctor: FAILED"; fi
 exit "$fail"

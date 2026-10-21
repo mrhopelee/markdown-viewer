@@ -24,15 +24,12 @@ use the matching feature file as the recipe.
   `#__mdv_sidebar` and `#__mdv_tab_outline`, `.token` for Prism spans, and
   `document.body.className` for the active theme/color.
 - Popup-backed steps navigate the tab to `chrome-extension://$EXT_ID/popup/index.html`,
-  mutate a control, then load the markdown file once.
+  mutate a control, then load the markdown file.
 - After navigating to a markdown file, pass `--wait-ms 3000` so the content
   script has injected.
-- **Load a markdown URL only once per instance.** A second navigation to the
-  same markdown URL, or an F5 reload, does not re-inject the content script
-  (`detect.tab` skips when `window.state` is already set, and that flag races
-  across a reload). Launch a fresh instance per feature. The render,
-  syntax-highlighting, and outline recipes all assert on the same single
-  markdown navigation and can share one instance.
+- Reload and re-navigation are safe: the content script re-injects on a second
+  navigation and on F5. One instance can drive every feature; the render,
+  syntax-highlighting, and outline recipes all assert on the same navigation.
 
 ## Proof and skip reporting
 
@@ -68,6 +65,8 @@ user-visible behavior. It then uses exactly four H2 sections in this order.
 - [Themes](./themes.md) — switching the content theme via the popup.
 - [Raw view](./raw-view.md) — toggling raw markdown vs rendered HTML via the
   popup.
+- [Task lists](./task-lists.md) — interactive GFM task-list checkboxes that
+  flip the `[ ]`/`[x]` marker in the source.
 
 ## Out of scope for automated drive
 
@@ -75,3 +74,8 @@ The workspace features (file tree, open workspace, cross-workspace search,
 command palette, file tabs) require the File System Access API folder picker,
 which needs a native dialog. These are not headless-driveable with this harness;
 verify them manually or through the popup/options surfaces only where noted.
+
+The task-list feature's disk write-back is also only manual: it persists through
+a workspace `FileSystemFileHandle`, which requires the folder picker. The
+interactive toggle itself (flipping `[ ]`/`[x]` in the source) is fully
+headless-driveable and covered by `task-lists.md`.
