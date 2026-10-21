@@ -138,7 +138,10 @@ var toggleTaskMarkdown = (md, index, checked) => {
 }
 
 var enableTaskLists = () => {
-  var boxes = document.querySelectorAll('.task-list-item-checkbox')
+  // markdown-it puts the checkbox in `.task-list-item-checkbox`; marked and
+  // remark render a bare `input[type=checkbox]` inside the list item. Match
+  // all three via `li input[type=checkbox]`.
+  var boxes = document.querySelectorAll('li input[type=checkbox]')
   if (!boxes.length) return
   // Only enable when every rendered checkbox maps 1:1 to a source marker.
   if (boxes.length !== countTaskMarkers(state.markdown)) return
@@ -165,7 +168,7 @@ var onTaskToggle = (box) => {
 
 document.addEventListener('change', (e) => {
   var box = e.target
-  if (!box || !box.classList || !box.classList.contains('task-list-item-checkbox')) return
+  if (!box || box.type !== 'checkbox' || !box.hasAttribute('data-task-index')) return
   onTaskToggle(box)
 })
 
