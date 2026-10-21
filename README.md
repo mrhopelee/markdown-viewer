@@ -229,6 +229,7 @@ Rendered Markdown pages get an embedded left sidebar with **Files** and **Outlin
 - Picking the same folder again reuses the existing workspace (no duplicates).
 - The workspace list, including the last active one, is persisted across sessions.
 - The temporary workspace is pinned to the top; other workspaces are sorted by name.
+- Directory workspaces prompt once for the folder's absolute root path; with it set, files open as `file://` URLs.
 
 ## Files
 

@@ -1,6 +1,15 @@
 
 # Change Log
 
+## Unreleased
+- interactive task-list checkboxes that write back to the markdown source
+- task-list write-back to file via workspace file handles
+- fix task-list checkboxes not being interactive with the marked and remark compilers
+- fix markdown not re-rendering on page reload
+- stop autoreload polling after the extension is reloaded
+- show the extension version in the sidebar status bar
+- prompt for a directory workspace root path once when the workspace is opened
+
 ## v5.3 - 2024-04-30
 - custom theme support
 - syntax highlighted raw markdown view
