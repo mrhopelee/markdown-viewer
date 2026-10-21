@@ -2003,7 +2003,7 @@
 
   function pickDirectory () {
     if (typeof window.showDirectoryPicker !== 'function') return
-    window.showDirectoryPicker({ mode: 'read' }).then(addWorkspace).catch(function () {})
+    window.showDirectoryPicker({ mode: 'readwrite' }).then(addWorkspace).catch(function () {})
   }
 
   function activeWs () {
@@ -2144,6 +2144,7 @@
     if (typeof window.showOpenFilePicker !== 'function') return
     window.showOpenFilePicker({
       multiple: true,
+      mode: 'readwrite',
       types: [{
         description: 'Markdown',
         accept: { 'text/markdown': ['.md', '.markdown', '.mdown', '.mkdn', '.mkd', '.mdwn', '.mdtxt', '.mdtext', '.text'] }
@@ -3221,6 +3222,20 @@
       if (treeNavIdx >= 0 && rows[treeNavIdx]) { e.preventDefault(); navRight() }
     }
   })
+
+  // Write the current file's markdown back to disk via its File System handle.
+  // Only works when the file was opened through a workspace (handle + write
+  // permission). Returns a Promise<boolean>.
+  window.__mdv_saveMarkdown = function (text) {
+    var ws = activeWs()
+    if (!ws || !currentFileKey) return Promise.resolve(false)
+    var relPath = currentFileKey.indexOf('::') >= 0 ? currentFileKey.slice(currentFileKey.indexOf('::') + 2) : ''
+    var handle = resolveHandle(ws, relPath)
+    if (!handle || typeof handle.createWritable !== 'function') return Promise.resolve(false)
+    return handle.createWritable().then(function (w) {
+      return w.write(text).then(function () { return w.close() })
+    }).then(function () { return true }).catch(function () { return false })
+  }
 
   init()
 })()
